@@ -31,17 +31,24 @@ export default function RootLayout({
                       return storedTheme;
                     }
                   } catch (e) {
-                    console.warn('Could not access localStorage for theme:', e);
+                    // Silently ignore localStorage access errors (e.g., in private browsing)
                   }
-                  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                  // Ensure window and matchMedia are available
+                  if (typeof window !== 'undefined' && window.matchMedia) {
+                     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                  }
+                  return 'light'; // Fallback if window.matchMedia is not available
                 }
                 const theme = getInitialTheme();
-                if (theme === 'dark') {
-                  document.documentElement.classList.add('dark');
-                  document.documentElement.classList.remove('light');
-                } else {
-                  document.documentElement.classList.remove('dark');
-                  document.documentElement.classList.add('light');
+                // Ensure document.documentElement is available
+                if (typeof document !== 'undefined' && document.documentElement) {
+                    if (theme === 'dark') {
+                      document.documentElement.classList.add('dark');
+                      document.documentElement.classList.remove('light');
+                    } else {
+                      document.documentElement.classList.remove('dark');
+                      document.documentElement.classList.add('light');
+                    }
                 }
               })();
             `,
