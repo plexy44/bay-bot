@@ -110,28 +110,42 @@ body {
   @apply bg-popover/70 backdrop-blur-lg border border-border/40 shadow-xl shadow-primary/10 rounded-lg;
 }
 
+/* BayBot Tabs Customization for Nav Bar */
+
+/* INACTIVE STATE: White button, black text/icons (applied to light and dark themes) */
 .baybot-tabs-trigger {
-  @apply transition-all duration-300 ease-in-out bg-transparent text-muted-foreground;
-  /* Non-active tabs: default transparent background, muted foreground. Hover effect for these is now only interactive-glow from component class. */
+  background-color: hsl(0 0% 100%) !important; /* White background */
+  color: hsl(0 0% 13.7%) !important; /* Dark Gray text/icons (near black) */
+  border: 1px solid hsl(0 0% 13.7%) !important; /* Dark Gray border */
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+/* Remove hover/focus effects by setting them to the base inactive state */
+.baybot-tabs-trigger:hover,
+.baybot-tabs-trigger:focus-visible {
+  background-color: hsl(0 0% 100%) !important;
+  color: hsl(0 0% 13.7%) !important;
+  border-color: hsl(0 0% 13.7%) !important;
+  box-shadow: none !important;
 }
 
-/* Active tab style: Restored to original prominent style */
+/* ACTIVE STATE: Black button, white text/icons (applied to light and dark themes) */
 .baybot-tabs-trigger[data-state=active] {
-  @apply bg-primary text-primary-foreground shadow-md;
+  background-color: hsl(0 0% 13.7%) !important; /* Dark Gray background (near black) */
+  color: hsl(0 0% 100%) !important; /* White text/icons */
+  border: 1px solid hsl(0 0% 13.7%) !important; /* Matching border */
+  box-shadow: none !important;
+}
+/* Remove hover/focus effects for active state by setting them to the base active state */
+.baybot-tabs-trigger[data-state=active]:hover,
+.baybot-tabs-trigger[data-state=active]:focus-visible {
+  background-color: hsl(0 0% 13.7%) !important;
+  color: hsl(0 0% 100%) !important;
+  border-color: hsl(0 0% 13.7%) !important;
+  box-shadow: none !important;
 }
 
-/* Active tab hover: Restored */
-.baybot-tabs-trigger[data-state=active]:hover {
-  @apply bg-primary/90 text-primary-foreground shadow-lg;
-}
-
-/* Dark theme specific override for active tab: Restored */
-.dark .baybot-tabs-trigger[data-state=active] {
-  @apply bg-card text-foreground shadow-lg shadow-primary/20;
-}
-.dark .baybot-tabs-trigger[data-state=active]:hover {
-  @apply bg-card/80 text-foreground shadow-xl shadow-primary/30;
-}
+/* End BayBot Tabs Customization */
 
 
 @keyframes pulse-glass {

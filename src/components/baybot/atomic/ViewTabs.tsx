@@ -29,22 +29,22 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
 
   return (
     <Tabs value={tabValue} onValueChange={handleValueChange}>
-      <TabsList className="bg-muted/50 backdrop-blur-sm">
-        <TabsTrigger 
-          value="/" 
+      <TabsList className="p-0 bg-transparent"> {/* Removed padding and background from TabsList */}
+        <TabsTrigger
+          value="/"
           className={cn(
-            "baybot-tabs-trigger px-3 sm:px-4",
-            "interactive-glow" // Added glow effect
+            "baybot-tabs-trigger px-3 sm:px-4"
+            // Removed interactive-glow
           )}
         >
           <TrendingUp className="h-4 w-4 sm:mr-2" />
           <span className="hidden sm:inline">Curated Deals</span>
         </TabsTrigger>
-        <TabsTrigger 
-          value="/auctions" 
+        <TabsTrigger
+          value="/auctions"
           className={cn(
-            "baybot-tabs-trigger px-3 sm:px-4",
-            "interactive-glow" // Added glow effect
+            "baybot-tabs-trigger px-3 sm:px-4"
+            // Removed interactive-glow
           )}
         >
           <Gavel className="h-4 w-4 sm:mr-2" />
