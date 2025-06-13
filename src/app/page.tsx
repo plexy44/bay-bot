@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { BarChart2, ShoppingBag, Search } from "lucide-react";
 import type { BayBotItem } from '@/types';
-import { fetchItems, popularSearchTerms } from '@/lib/ebay-mock-api';
+import { fetchItems } from '@/services/ebay-api-service'; // Updated import
 import { rankDeals as rankDealsAI, type Deal as AIDeal, type RankDealsInput } from '@/ai/flows/rank-deals';
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -21,7 +21,7 @@ const ITEMS_PER_PAGE = 8;
 
 export default function HomePage() {
   const [currentView, setCurrentView] = useState<'deals' | 'auctions'>('deals');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(''); // Start with empty search query
   const [displayedItems, setDisplayedItems] = useState<BayBotItem[]>([]);
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
@@ -33,8 +33,6 @@ export default function HomePage() {
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
 
   const { toast } = useToast();
-
-  const [isInitialQuerySet, setIsInitialQuerySet] = useState(false);
 
   const mapToAIDeal = useCallback((item: BayBotItem): AIDeal => ({
     id: item.id,
@@ -48,15 +46,19 @@ export default function HomePage() {
   const loadItems = useCallback(async (view: 'deals' | 'auctions', query: string) => {
     setIsLoading(true);
     setError(null);
+    let fetchedItems: BayBotItem[] = [];
+    const isCuratedHomepage = view === 'deals' && !query;
+
     try {
-      let fetchedItems = await fetchItems(view, query);
+      fetchedItems = await fetchItems(view, query, isCuratedHomepage);
       
-      if (query && fetchedItems.length > 0 && view === 'deals') {
+      if ((query || isCuratedHomepage) && fetchedItems.length > 0 && view === 'deals') {
         setIsRanking(true);
         try {
           const aiRankerInput: RankDealsInput = {
             deals: fetchedItems.map(mapToAIDeal),
-            query: query,
+            // For curated homepage, pass an empty query or a generic one to the AI ranker
+            query: query || (isCuratedHomepage ? "general deals" : ""), 
           };
           const rankedAIDeals = await rankDealsAI(aiRankerInput);
           
@@ -68,10 +70,15 @@ export default function HomePage() {
                 const indexB = rankedAIDeals.findIndex(d => d.id === b.id);
                 return indexA - indexB;
             });
+          
+          // After AI ranking, sort by highest discount percentage for deals
+          fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
 
           toast({
-            title: "Smart Ranking Applied",
-            description: "Items have been re-ordered by relevance and value.",
+            title: isCuratedHomepage ? "Top Deals Curated" : "Smart Ranking Applied",
+            description: isCuratedHomepage 
+              ? "Displaying AI-qualified top deals, sorted by discount."
+              : "Items have been re-ordered by relevance and value, then discount.",
           });
         } catch (rankError) {
           console.error("AI Ranking failed:", rankError);
@@ -80,6 +87,7 @@ export default function HomePage() {
             description: "Displaying default sorted items. AI ranking service might be unavailable.",
             variant: "destructive",
           });
+          // Fallback sort by discount percentage if AI ranking fails
           if (view === 'deals') {
             fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
           }
@@ -87,7 +95,10 @@ export default function HomePage() {
           setIsRanking(false);
         }
       } else if (view === 'deals' && fetchedItems.length > 0) {
+        // Default sort for deals if no query and not curated (or if AI ranking skipped)
         fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
+      } else if (view === 'auctions' && fetchedItems.length > 0) {
+        // Auctions are pre-sorted by EndTimeSoonest from API, no additional sort here unless specified
       }
 
       setAllItems(fetchedItems);
@@ -95,7 +106,7 @@ export default function HomePage() {
       setVisibleItemCount(ITEMS_PER_PAGE);
     } catch (e) {
       console.error("Failed to load items:", e);
-      setError(`Failed to load ${view}. Please try again.`);
+      setError(`Failed to load ${view}. Please check your connection or API setup.`);
       setAllItems([]);
       setDisplayedItems([]);
     } finally {
@@ -103,44 +114,21 @@ export default function HomePage() {
     }
   }, [toast, mapToAIDeal]);
   
+  // Initial load effect
   useEffect(() => {
-    let queryToLoad = searchQuery;
-    let shouldLoadItems = true;
-
-    if (!isInitialQuerySet) {
-      if (currentView === 'deals' && searchQuery === '' && typeof window !== "undefined" && popularSearchTerms.length > 0) {
-        const randomTerm = popularSearchTerms[Math.floor(Math.random() * popularSearchTerms.length)];
-        setSearchQuery(randomTerm); // This will cause a re-render and this effect to run again
-        setIsInitialQuerySet(true);
-        shouldLoadItems = false; // Don't load in this run; wait for searchQuery to update and effect to re-run
-      } else {
-        // Conditions for initial random search not met (e.g., not deals view, or query already set, or no popular terms)
-        // Mark initial setup as done for the current context.
-        setIsInitialQuerySet(true);
-      }
-    }
-    
-    if (shouldLoadItems) {
-      loadItems(currentView, queryToLoad);
-    }
+    // Load items based on currentView and searchQuery (which is initially empty)
+    loadItems(currentView, searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, searchQuery, loadItems, isInitialQuerySet]);
-
-
-  // Reset isInitialQuerySet when view changes, so random search can be re-triggered if switching to deals with empty query
-  useEffect(() => {
-    setIsInitialQuerySet(false);
-  }, [currentView]);
+  }, [currentView, searchQuery]); // Rerun when view or search query changes
 
 
   const handleSearch = (query: string) => {
     setSearchQuery(query); 
-    setIsInitialQuerySet(true); // User initiated a search, so consider initial query setup handled
   };
   
   const handleViewChange = (view: 'deals' | 'auctions') => {
     setCurrentView(view);
-    // isInitialQuerySet will be reset by the dedicated useEffect for currentView change
+    // searchQuery remains, useEffect will trigger loadItems with new view and current query
   };
 
   const handleLoadMore = () => {
@@ -179,7 +167,10 @@ export default function HomePage() {
             <Search className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
             <h2 className="text-2xl font-headline mb-2">No {currentView} found</h2>
             <p className="text-muted-foreground">
-              Try adjusting your search query or check back later.
+              {searchQuery 
+                ? `Try adjusting your search for "${searchQuery}".`
+                : `No items found for the current view. Try a search or check back later.`
+              }
             </p>
           </div>
         )}

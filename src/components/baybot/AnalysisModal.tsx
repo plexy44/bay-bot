@@ -25,7 +25,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
   const [animatedRarityScore, setAnimatedRarityScore] = useState(0);
 
   useEffect(() => {
-    if (isOpen && item && item.type === 'deal') { // Only analyze deals for now as per flow
+    if (isOpen && item && item.type === 'deal') {
       const performAnalysis = async () => {
         setIsLoading(true);
         setError(null);
@@ -36,10 +36,10 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
         try {
           const input: AnalyzeDealInput = {
             title: item.title,
-            description: item.description,
+            description: item.description || "N/A", // Ensure description is passed
             price: item.price,
-            originalPrice: item.originalPrice || item.price, // Fallback if originalPrice is not available
-            discountPercentage: item.discountPercentage || 0, // Fallback
+            originalPrice: item.originalPrice || item.price,
+            discountPercentage: item.discountPercentage || 0,
             imageUrl: item.imageUrl,
           };
           const result = await analyzeDeal(input);
@@ -53,7 +53,6 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
       };
       performAnalysis();
     } else if (isOpen && item && item.type === 'auction') {
-        // For auctions, show a message or disable analysis
         setAnalysis(null);
         setError("AI analysis is currently available for deals only.");
         setIsLoading(false);
@@ -76,29 +75,29 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[525px] glass-popover"> {/* Applied glass effect */}
+      <DialogContent className="sm:max-w-[525px] glass-popover">
         <DialogHeader>
           <DialogTitle className="font-headline text-2xl flex items-center text-foreground">
             <Zap className="w-6 h-6 mr-2 text-primary" /> AI Analysis: {item.title}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            Powered by GenAI to assess risk and rarity.
+            {item.type === 'deal' ? "Powered by GenAI to assess risk and rarity." : "AI Analysis is for deals only."}
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-6">
-          {isLoading && (
+          {isLoading && item.type === 'deal' && (
             <div className="flex flex-col items-center justify-center h-40">
               <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-              <p className="text-muted-foreground">Analyzing item, please wait...</p>
+              <p className="text-muted-foreground">Analyzing deal, please wait...</p>
             </div>
           )}
-          {error && !isLoading && (
+          {error && ( // Show error for both deals and auctions if applicable
             <div className="flex flex-col items-center justify-center h-40 text-destructive">
               <AlertTriangle className="h-12 w-12 mb-4" />
               <p>{error}</p>
             </div>
           )}
-          {analysis && !isLoading && !error && (
+          {analysis && !isLoading && !error && item.type === 'deal' && (
             <>
               <div className="space-y-2">
                 <div className="flex justify-between items-center mb-1">
@@ -126,12 +125,10 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
             </>
           )}
         </div>
-         <div className="pt-4 border-t border-border/50"> {/* Slightly more opaque border */}
+         <div className="pt-4 border-t border-border/50">
             <Button onClick={onClose} variant="outline" className="w-full interactive-glow">Close</Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 };
-
-    

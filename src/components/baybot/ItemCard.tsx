@@ -17,17 +17,17 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
       <CardHeader className="p-0 relative">
         <div className="aspect-video relative">
           <Image
-            // @ts-ignore next-line
-            src={item.imageUrl}
+            src={item.imageUrl || 'https://placehold.co/600x400.png'} // Fallback if imageUrl is missing
             alt={item.title}
             fill
-            className="object-cover rounded-t-lg" // Ensure image corners match card if not fully covered
-            // @ts-ignore next-line
-            data-ai-hint={item['data-ai-hint']}
+            className="object-cover rounded-t-lg" 
+            data-ai-hint={item['data-ai-hint'] || item.title.toLowerCase().split(' ').slice(0,2).join(' ')}
+            unoptimized={item.imageUrl?.includes('ebayimg.com')} // Avoid Next.js optimization for external dynamic eBay images
+            priority={false} // Standard priority
           />
-          {item.discountPercentage && item.discountPercentage > 0 && (
-            <Badge variant="destructive" className="absolute top-3 right-3 shadow-lg bg-destructive/80 backdrop-blur-sm">
-              <Percent className="h-3 w-3 mr-1" /> {item.discountPercentage}% OFF
+          {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
+            <Badge variant="destructive" className="absolute top-3 right-3 shadow-lg bg-destructive/80 backdrop-blur-sm text-destructive-foreground">
+              <Percent className="h-3.5 w-3.5 mr-1" /> {item.discountPercentage}% OFF
             </Badge>
           )}
         </div>
@@ -36,9 +36,9 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
         <CardTitle className="text-lg font-headline mb-2 leading-tight line-clamp-2 text-foreground">{item.title}</CardTitle>
         <div className="flex items-center space-x-2 mb-2">
           <Tag className="h-5 w-5 text-primary" />
-          <p className="text-2xl font-semibold text-primary">${item.price.toFixed(2)}</p>
+          <p className="text-2xl font-semibold text-primary">£{item.price.toFixed(2)}</p>
           {item.originalPrice && item.price < item.originalPrice && (
-            <p className="text-sm text-muted-foreground line-through">${item.originalPrice.toFixed(2)}</p>
+            <p className="text-sm text-muted-foreground line-through">£{item.originalPrice.toFixed(2)}</p>
           )}
         </div>
         
@@ -57,18 +57,16 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
           )}
           <div className="flex items-center">
             <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
-            <span>Seller Reputation: {item.sellerReputation}/100</span>
+            <span>Seller Score: {item.sellerReputation.toFixed(0)}%</span>
           </div>
         </div>
       </CardContent>
       <CardFooter className="p-4 pt-0">
-        <Button onClick={() => onAnalyze(item)} className="w-full interactive-glow" variant="outline">
+        <Button onClick={() => onAnalyze(item)} className="w-full interactive-glow" variant="outline" disabled={item.type === 'auction'}>
           <Eye className="h-4 w-4 mr-2" />
-          Analyze Item
+          {item.type === 'deal' ? 'Analyze Deal' : 'Analysis N/A'}
         </Button>
       </CardFooter>
     </Card>
   );
 };
-
-    

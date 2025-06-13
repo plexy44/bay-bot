@@ -4,7 +4,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search } from "lucide-react";
-import { popularSearchTerms } from '@/lib/ebay-mock-api';
+import { getRandomPopularSearchTerm } from '@/services/ebay-api-service';
 
 
 interface AppHeaderProps {
@@ -12,7 +12,7 @@ interface AppHeaderProps {
   onViewChange: (view: 'deals' | 'auctions') => void;
   onSearch: (query: string) => void;
   searchQuery: string;
-  setSearchQuery: (query: string) => void; // Added for direct control from header
+  setSearchQuery: (query: string) => void; 
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onSearch, searchQuery, setSearchQuery }) => {
@@ -23,23 +23,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
   };
 
   const handleLogoClick = () => {
-    if (popularSearchTerms.length > 0) {
-      const randomTerm = popularSearchTerms[Math.floor(Math.random() * popularSearchTerms.length)];
-      setSearchQuery(randomTerm); // Update input field and trigger HomePage's useEffect via state change
+    const randomTerm = getRandomPopularSearchTerm();
+    setSearchQuery(randomTerm); 
 
-      if (currentView !== 'deals') {
-        onViewChange('deals'); // Switch to deals view, HomePage useEffect will use new searchQuery
-      } else {
-        // If already on deals, the change in searchQuery (from setSearchQuery) will trigger
-        // HomePage's useEffect to reload with the new randomTerm.
-      }
+    if (currentView !== 'deals') {
+      onViewChange('deals'); 
+    } else {
+      onSearch(randomTerm); // If already on deals, directly trigger search with the new term
     }
   };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/60 backdrop-blur-lg supports-[backdrop-filter]:bg-background/40">
       <div className="container flex h-16 max-w-screen-2xl items-center">
-        <div className="ml-2 mr-4 flex items-center md:ml-4"> {/* Added ml-2 for small screens, ml-4 for md+ */}
+        <div className="ml-2 mr-4 flex items-center md:ml-4">
           <button 
             onClick={handleLogoClick} 
             className="text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
@@ -54,7 +51,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
             <form onSubmit={handleSearchSubmit} className="flex w-full md:w-80 items-center space-x-2">
               <Input
                 type="search"
-                placeholder="Search items..."
+                placeholder="Search items on eBay.co.uk..."
                 className="h-9 flex-1 bg-input/50 backdrop-blur-sm border-border/50 focus:bg-input/70"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
