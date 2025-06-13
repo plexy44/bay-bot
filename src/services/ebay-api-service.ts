@@ -13,6 +13,14 @@ interface EbayToken {
 
 let ebayToken: EbayToken | null = null;
 
+// Cache for fetchItems
+interface CacheEntry {
+  data: BayBotItem[];
+  timestamp: number;
+}
+const fetchItemsCache = new Map<string, CacheEntry>();
+const FETCH_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 async function getEbayAuthToken(): Promise<string> {
   if (ebayToken && Date.now() < ebayToken.fetched_at + (ebayToken.expires_in - 300) * 1000) {
     return ebayToken.access_token;
@@ -194,6 +202,22 @@ export const fetchItems = async (
   query?: string,
   isCuratedHomepageDeals: boolean = false // Parameter to indicate curated homepage request
 ): Promise<BayBotItem[]> => {
+  const cacheKey = `${type}:${query || ''}:${isCuratedHomepageDeals}`;
+
+  // Check cache first
+  if (fetchItemsCache.has(cacheKey)) {
+    const cachedEntry = fetchItemsCache.get(cacheKey)!;
+    if (Date.now() - cachedEntry.timestamp < FETCH_ITEMS_CACHE_TTL_MS) {
+      console.log(`[Cache HIT] Returning cached items for key: ${cacheKey}`);
+      return cachedEntry.data;
+    } else {
+      // Cache expired
+      fetchItemsCache.delete(cacheKey);
+      console.log(`[Cache EXPIRED] Deleted cache for key: ${cacheKey}`);
+    }
+  }
+  console.log(`[Cache MISS] Fetching items from API for key: ${cacheKey}`);
+
   const authToken = await getEbayAuthToken();
   const appId = process.env.EBAY_APP_ID; // Already checked in getEbayAuthToken
 
@@ -260,6 +284,10 @@ export const fetchItems = async (
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`eBay Finding API request failed: ${response.status} for query "${keywords}", type "${type}". Body: ${errorBody}`);
+      // Attempt to cache the error as an empty array to prevent immediate retries for this specific query
+      // Note: This means a temporary API issue might lead to empty results being cached for TTL.
+      fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
+      console.log(`[Cache SET] Cached empty error response for key: ${cacheKey}`);
       throw new Error(`eBay API request failed: ${response.status}. Check server logs for details.`);
     }
 
@@ -273,6 +301,8 @@ export const fetchItems = async (
         !data[operationResponseKey][0].searchResult[0] || 
         !data[operationResponseKey][0].searchResult[0].item) {
       console.warn('No items found or unexpected API response structure from eBay for query:', keywords, 'type:', type, 'Data:', JSON.stringify(data, null, 2));
+      fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() }); // Cache empty result
+      console.log(`[Cache SET] Cached empty result (no items) for key: ${cacheKey}`);
       return [];
     }
     
@@ -282,6 +312,10 @@ export const fetchItems = async (
       .map(ebayItem => transformEbayItem(ebayItem, type))
       .filter((item): item is BayBotItem => item !== null); // Filter out any nulls from transformation errors
 
+    // Cache the successful result
+    fetchItemsCache.set(cacheKey, { data: transformedItems, timestamp: Date.now() });
+    console.log(`[Cache SET] Cached items for key: ${cacheKey}`);
+    
     // Initial sort for deals by highest discount percentage if it's a 'deal' type,
     // AI ranking will further refine this.
     if (type === 'deal') {
@@ -293,6 +327,11 @@ export const fetchItems = async (
   } catch (error) {
     console.error('Error fetching or processing eBay items for query:', keywords, 'type:', type, error);
     // In case of error, return an empty array to prevent app crash
+    // The cache might already be set to an empty array if the error was response.ok=false
+    if (!fetchItemsCache.has(cacheKey)) {
+      fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
+      console.log(`[Cache SET] Cached empty result (exception) for key: ${cacheKey}`);
+    }
     return []; 
   }
 };
@@ -302,4 +341,3 @@ export async function getRandomPopularSearchTerm(): Promise<string> {
   if (popularSearchTermsForLogoClick.length === 0) return "tech deals"; // Fallback
   return popularSearchTermsForLogoClick[Math.floor(Math.random() * popularSearchTermsForLogoClick.length)];
 }
-
