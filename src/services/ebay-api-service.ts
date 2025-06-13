@@ -62,11 +62,15 @@ async function getEbayAuthToken(): Promise<string> {
     return ebayToken!.access_token;
   } catch (error) {
     console.error('Detailed error during eBay OAuth token fetch:', error);
-    if (error instanceof Error && (error.message.includes('eBay OAuth request failed') || error.message.includes('invalid_client'))) {
-      throw error; // Re-throw specific, informative errors
+    if (error instanceof Error) { // Check if error is an instance of Error
+        // Re-throw specific, informative errors or wrap them
+        if (error.message.includes('eBay OAuth request failed') || error.message.includes('invalid_client')) {
+            throw error;
+        }
+        throw new Error(`Failed to authenticate with eBay API: ${error.message}. Please check server logs for more details and ensure eBay API credentials in .env are correct and have production access.`);
     }
     // Fallback for other types of errors during token fetch
-    throw new Error('Failed to authenticate with eBay API. Please check server logs for more details and ensure eBay API credentials in .env are correct and have production access.');
+    throw new Error('Failed to authenticate with eBay API due to an unknown error. Please check server logs for more details.');
   }
 }
 
@@ -219,13 +223,13 @@ export const fetchItems = async (
 
   if (!keywords) {
     console.warn("[BayBot Fetch] No keywords determined, defaulting to 'popular items'. This may happen if curated/auction defaults are not met and no query is provided.");
-    keywords = "popular items"; // Generic fallback
+    keywords = "popular items"; 
   }
 
 
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search'); 
   browseApiUrl.searchParams.append('q', keywords);
-  browseApiUrl.searchParams.append('limit', '20'); 
+  browseApiUrl.searchParams.append('limit', '100'); // Changed limit from 20 to 100
 
   let filterOptions = ['itemLocationCountry:GB'];
   if (type === 'deal') {
@@ -275,14 +279,11 @@ export const fetchItems = async (
   } catch (error) {
     console.error(`Error in fetchItems for query "${keywords}", type "${type}":`, error);
     if (error instanceof Error) {
-        // Re-throw specific errors to be handled by the UI or global error handlers
-        if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed")) {
-             throw error; // Re-throw as is, since it's already informative
+        if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API")) {
+             throw error; 
         }
-        // For other generic errors, wrap them
         throw new Error(`Failed to fetch eBay items: ${error.message}.`);
     }
-    // Fallback for non-Error objects thrown
     throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}.`);
   }
 };
