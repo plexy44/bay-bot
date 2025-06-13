@@ -3,12 +3,12 @@ export interface BayBotItem {
   id: string;
   type: 'deal' | 'auction';
   title: string;
-  description: string; // Might be shorter with Browse API (shortDescription)
+  description: string; // Can be shortDescription from Browse API
   imageUrl: string;
   price: number; // current price for deal, current bid for auction
   originalPrice?: number; // RRP or original price for deals
   discountPercentage?: number; // Calculated or provided for deals
-  sellerReputation: number; // Score from 0-100
+  sellerReputation: number; // Score from 0-100 (feedbackPercentage)
   // Auction specific
   endTime?: string; // ISO date string, for auctions
   timeLeft?: string; // Human-readable time left, for auctions

@@ -61,7 +61,7 @@ async function getEbayAuthToken(): Promise<string> {
     return ebayToken!.access_token;
   } catch (error) {
     console.error('Detailed error during eBay OAuth token fetch:', error);
-    if (error instanceof Error && error.message.includes('eBay OAuth request failed')) {
+    if (error instanceof Error && (error.message.includes('eBay OAuth request failed') || error.message.includes('invalid_client'))) {
       throw error;
     }
     throw new Error('Failed to authenticate with eBay API. Please check server logs for more details and ensure eBay API credentials in .env are correct and have production access.');
@@ -99,18 +99,18 @@ interface BrowseApiItemSummary {
   title: string;
   image?: { imageUrl: string };
   price: { value: string; currency: string };
-  itemAffiliateWebUrl?: string; 
-  itemWebUrl?: string; 
-  shortDescription?: string; 
+  itemAffiliateWebUrl?: string;
+  itemWebUrl?: string;
+  shortDescription?: string;
   seller: {
     username: string;
     feedbackPercentage: string;
     feedbackScore: number;
   };
-  buyingOptions: string[]; 
-  itemEndDate?: string; 
-  bidCount?: number; 
-  marketingPrice?: { 
+  buyingOptions: string[];
+  itemEndDate?: string;
+  bidCount?: number;
+  marketingPrice?: {
     originalPrice?: { value: string; currency: string };
     discountPercentage?: string;
     discountAmount?: { value: string; currency: string };
@@ -138,7 +138,8 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
       }
     }
 
-    if (discountPercentageValue === undefined && originalPriceValue !== undefined) {
+    // Calculate discount if not directly provided but original price is known
+    if (discountPercentageValue === undefined && originalPriceValue !== undefined && currentPriceValue < originalPriceValue) {
       discountPercentageValue = calculateDiscountPercentage(currentPriceValue, originalPriceValue);
     }
      discountPercentageValue = discountPercentageValue || 0;
@@ -146,8 +147,9 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
 
     const sellerReputation = browseItem.seller?.feedbackPercentage
       ? parseFloat(browseItem.seller.feedbackPercentage)
-      : 70; 
+      : 70; // Default if no feedback percentage
 
+    // Determine type based on filter, but can be confirmed by buyingOptions
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
     if (browseItem.buyingOptions?.includes('FIXED_PRICE')) {
         determinedItemType = 'deal';
@@ -155,12 +157,15 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
         determinedItemType = 'auction';
     }
 
+    const description = browseItem.shortDescription ||
+                        (browseItem.itemWebUrl ? `View this item on eBay: ${browseItem.itemWebUrl}` :
+                        (browseItem.itemAffiliateWebUrl ? `View this item on eBay: ${browseItem.itemAffiliateWebUrl}` : title));
 
     const bayBotItem: BayBotItem = {
       id,
       type: determinedItemType,
       title,
-      description: browseItem.shortDescription || `View this item on eBay: ${browseItem.itemWebUrl || browseItem.itemAffiliateWebUrl || title}`,
+      description,
       imageUrl,
       price: currentPriceValue,
       originalPrice: originalPriceValue,
@@ -203,24 +208,25 @@ export const fetchItems = async (
   console.log(`[Cache MISS] Fetching items from Browse API for key: ${cacheKey}`);
 
   const authToken = await getEbayAuthToken();
-  
+
   let keywords = query || '';
   if (isCuratedHomepageDeals && !query) {
-    keywords = "top deals"; 
+    keywords = "top deals"; // For curated homepage deals
   } else if (type === 'auction' && !query) {
-    keywords = "collectible auction"; 
+    keywords = "collectible auction"; // Default for general auctions
   }
 
-  const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search');
-  browseApiUrl.searchParams.append('q', keywords);
-  browseApiUrl.searchParams.append('limit', '20'); 
 
-  let filterOptions = ['itemLocationCountry:GB']; 
+  const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search'); // Production API
+  browseApiUrl.searchParams.append('q', keywords);
+  browseApiUrl.searchParams.append('limit', '20'); // Request 20 items
+
+  let filterOptions = ['itemLocationCountry:GB'];
   if (type === 'deal') {
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
-  } else { 
+  } else { // auction
     filterOptions.push('buyingOptions:{AUCTION}');
-    browseApiUrl.searchParams.append('sort', '-itemEndDate'); 
+    browseApiUrl.searchParams.append('sort', '-itemEndDate'); // Sort auctions by ending soonest
   }
   browseApiUrl.searchParams.append('filter', filterOptions.join(','));
 
@@ -229,7 +235,7 @@ export const fetchItems = async (
     const response = await fetch(browseApiUrl.toString(), {
       headers: {
         'Authorization': `Bearer ${authToken}`,
-        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB', 
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB', // UK marketplace
         'Accept': 'application/json',
       },
       cache: 'no-store',
@@ -242,44 +248,38 @@ export const fetchItems = async (
     }
 
     const data = await response.json();
-    
+
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
       console.warn('No items found or unexpected API response structure from eBay Browse API for query:', keywords, 'type:', type, 'Data:', JSON.stringify(data, null, 2));
       fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
     }
-    
+
     const browseItems: BrowseApiItemSummary[] = data.itemSummaries || [];
-    
+
     const transformedItems = browseItems
       .map(browseItem => transformBrowseItem(browseItem, type))
       .filter((item): item is BayBotItem => item !== null);
 
     fetchItemsCache.set(cacheKey, { data: transformedItems, timestamp: Date.now() });
     console.log(`[Cache SET] Cached items for key: ${cacheKey}`);
-    
-    if (type === 'deal') {
-        return transformedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-    }
-    
-    return transformedItems; 
+
+    // Deals are sorted by discount percentage in page.tsx after potential AI ranking
+    return transformedItems;
 
   } catch (error) {
     console.error(`Error in fetchItems for query "${keywords}", type "${type}":`, error);
-    // Ensure a standard Error object is thrown for better serialization
     if (error instanceof Error) {
-        // If it's already the specific Browse API error, re-throw it directly if it contains "eBay Browse API request failed"
-        // This helps preserve specific error messages from the API response for client-side display.
         if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed")) {
              throw error;
         }
-        throw new Error(`Failed to fetch eBay items: ${error.message}`);
+        throw new Error(`Failed to fetch eBay items: ${error.message}.`);
     }
-    throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}`);
+    throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}.`);
   }
 };
 
 export async function getRandomPopularSearchTerm(): Promise<string> {
-  if (popularSearchTermsForLogoClick.length === 0) return "tech deals"; 
+  if (popularSearchTermsForLogoClick.length === 0) return "tech deals"; // Fallback
   return popularSearchTermsForLogoClick[Math.floor(Math.random() * popularSearchTermsForLogoClick.length)];
 }
