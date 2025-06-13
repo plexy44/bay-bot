@@ -112,33 +112,26 @@ body {
 
 .baybot-tabs-trigger {
   @apply transition-all duration-300 ease-in-out bg-transparent text-muted-foreground;
-  /* Default state for non-active tabs */
+  /* Default state for non-active tabs. Non-active tabs will no longer change background/text color on hover. */
 }
 
-.baybot-tabs-trigger:hover:not([data-state=active]) {
-  /* Hover state ONLY for non-active tabs - Subtle style */
+/* The :hover:not([data-state=active]) rule is removed to eliminate the specific background/text hover effect on non-active tabs. */
+
+/* Active tab style: uses 'accent' colors. This was previously the hover style for non-active tabs ("Image two"). */
+.baybot-tabs-trigger[data-state=active] {
+  @apply bg-accent text-accent-foreground;
+  /* The prominent box-shadow previously on the active state is removed to match the flatter "Image two" style. */
+}
+
+/* Hovering an active tab should maintain its active appearance (using 'accent' colors). */
+.baybot-tabs-trigger[data-state=active]:hover {
   @apply bg-accent text-accent-foreground;
 }
 
-/* Light theme active tab - Prominent style */
-.baybot-tabs-trigger[data-state=active] {
-  @apply bg-primary text-primary-foreground;
-  box-shadow: 0 0 15px 2px hsla(var(--primary),0.4),inset_0 0 8px hsla(var(--primary-foreground),0.3);
-}
-.baybot-tabs-trigger[data-state=active]:hover {
-  /* Maintain active (prominent) style on hover */
-  @apply bg-primary text-primary-foreground;
-}
-
-/* Dark theme overrides for active tab - Prominent style */
-.dark .baybot-tabs-trigger[data-state=active] {
-  @apply bg-card text-foreground; /* Uses dark theme's card background and foreground (Matrix Green) */
-  box-shadow: 0 0 15px 2px hsla(var(--card),0.4), inset 0 0 8px hsla(var(--foreground),0.3);
-}
-.dark .baybot-tabs-trigger[data-state=active]:hover {
-  /* Maintain active (prominent) style on hover in dark mode */
-  @apply bg-card text-foreground;
-}
+/* Dark theme specific overrides for the old prominent active tab style are no longer needed,
+   as 'bg-accent' and 'text-accent-foreground' are already theme-aware and define the desired
+   "Image two" look for the active tab in both light and dark modes.
+*/
 
 
 @keyframes pulse-glass {
@@ -182,3 +175,4 @@ body {
 .text-shadow-strong {
   text-shadow: 0px 1px 2px rgba(0,0,0,0.6);
 }
+
