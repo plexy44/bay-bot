@@ -38,8 +38,6 @@ export type QualifyAuctionsInput = z.infer<typeof QualifyAuctionsInputSchema>;
 const QualifyAuctionsOutputSchema = z.array(AuctionSchema).describe('The qualified and re-ranked list of auctions.');
 export type QualifyAuctionsOutput = z.infer<typeof QualifyAuctionsOutputSchema>;
 
-// This function is what the client-side page will call.
-// It handles the mapping from BayBotItem[] to AIAuction[] and back.
 export async function qualifyAuctions(
     baybotAuctions: BayBotItem[],
     query: string
@@ -65,19 +63,17 @@ export async function qualifyAuctions(
     
     try {
         const qualifiedAiAuctions: AIAuction[] = await qualifyAuctionsFlow(flowInput);
-
-        if (qualifiedAiAuctions.length !== baybotAuctions.length) {
-            console.warn(`[qualifyAuctions entry] AI flow returned a different number of auctions (${qualifiedAiAuctions.length}) than input (${baybotAuctions.length}). Falling back to original BayBot auction list order.`);
-            return baybotAuctions;
-        }
         
         const baybotAuctionMap = new Map(baybotAuctions.map(auction => [auction.id, auction]));
-        const reorderedBaybotAuctions: BayBotItem[] = qualifiedAiAuctions.map(aiAuction => baybotAuctionMap.get(aiAuction.id)).filter(Boolean) as BayBotItem[];
-
-        if (reorderedBaybotAuctions.length !== baybotAuctions.length) {
-            console.error('[qualifyAuctions entry] Mismatch in reordered BayBotAuctions length after mapping. Returning original list.');
-            return baybotAuctions;
+        const reorderedBaybotAuctions: BayBotItem[] = qualifiedAiAuctions
+            .map(aiAuction => baybotAuctionMap.get(aiAuction.id))
+            .filter(Boolean) as BayBotItem[];
+        
+        if (qualifiedAiAuctions.length !== baybotAuctions.length && qualifiedAiAuctions.length > 0) {
+             console.log(`[qualifyAuctions entry] AI flow returned ${qualifiedAiAuctions.length} auctions out of ${baybotAuctions.length} input auctions for query "${query}".`);
         }
+
+
         return reorderedBaybotAuctions;
 
     } catch (e) {
@@ -98,10 +94,12 @@ const qualifyAuctionsPrompt = ai.definePrompt({
   },
   prompt: `You are an expert shopping assistant specializing in eBay auctions. The following list of auctions has already been pre-filtered and sorted by the system (typically by ending soonest).
 Your task is to QUALIFY and RE-RANK these auctions based on overall credibility, potential value, and relevance to the user's query.
+Return ONLY an array of the auction IDs for items you deem qualified, sorted from the best auction to the worst.
+If you deem no items are qualified, return an empty array.
 
 User Query: "{{query}}"
 
-Auctions to Qualify and Re-rank:
+Auctions to Qualify and Re-rank (up to {{auctions.length}}):
 {{#each auctions}}
 - ID: {{id}}
   Title: "{{title}}"
@@ -112,9 +110,9 @@ Auctions to Qualify and Re-rank:
   Bid Count: {{bidCount_or_default bidCount 0}}
 {{/each}}
 
-Consider these factors for your final ranking:
+Consider these factors for your final ranking and qualification:
 1.  **Credibility & Trust:**
-    *   Prioritize sellers with high reputation (e.g., > 95%) and a significant number of feedback/reviews.
+    *   Prioritize sellers with high reputation (e.g., > 95%) and a significant number of feedback/reviews (e.g. > 50-100).
     *   Be wary of items with unusually low starting bids if other factors (low seller score, poor title, vague condition) are concerning.
 2.  **Potential Value & Bidding Dynamics:**
     *   Consider the current bid price relative to the item's typical market value.
@@ -125,10 +123,13 @@ Consider these factors for your final ranking:
     *   Deprioritize items that are accessories if the main product was likely searched. The system has already tried to filter these, but double-check.
 4.  **Time Sensitivity:**
     *   Auctions ending very soon are high priority if they represent good value. Balance this with other factors.
+5.  **Condition:**
+    *   New or Manufacturer Refurbished items are generally preferred over Used, unless the price for Used is exceptionally good and the seller is highly reputable.
 
-Return ONLY an array of the auction IDs, sorted from the best auction (highest credibility, best potential value, and relevance) to the worst.
-The array must contain all and only the IDs from the auctions provided above.
-Example response format: ["id3", "id1", "id2"]`,
+Return ONLY an array of the auction IDs that you qualify, sorted from the best auction (highest credibility, best potential value, and relevance) to the worst.
+The array can contain fewer IDs than the input if some auctions are not qualified.
+Example response format for 3 qualified auctions: ["id3", "id1", "id2"]
+Example response format if no auctions qualified: []`,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string) => value || defaultValue,
     timeLeft_or_default: (value: string | undefined, defaultValue: string) => value || defaultValue,
@@ -151,51 +152,45 @@ const qualifyAuctionsFlow = ai.defineFlow(
     try {
       const {output: rankedIds} = await qualifyAuctionsPrompt(input);
 
-      if (!rankedIds || rankedIds.length === 0) {
+      if (!rankedIds) { // Prompt failed or returned null/undefined
           console.warn(
-          `[qualifyAuctionsFlow] AI qualification (IDs) prompt returned no output. Query: "${input.query}". Auctions count: ${input.auctions.length}. Returning original auction list order.`
+          `[qualifyAuctionsFlow] AI qualification (IDs) prompt did not return a valid output (was null/undefined). Query: "${input.query}". Auctions count: ${input.auctions.length}. Falling back to original auction list order.`
           );
-          return input.auctions; 
+          return input.auctions; // Fallback to full original list if AI prompt fails badly
       }
       
-      if (rankedIds.length !== input.auctions.length) {
-        console.warn(
-          `[qualifyAuctionsFlow] AI qualification (IDs) prompt returned a list with an unexpected number of IDs. Input auctions count: ${input.auctions.length}, Output IDs count: ${rankedIds.length}. Query: "${input.query}". Returning original auction list order.`
+      if (rankedIds.length === 0) {
+        console.log(
+          `[qualifyAuctionsFlow] AI qualification (IDs) prompt returned an empty list (0 qualified auctions). Query: "${input.query}". Auctions count: ${input.auctions.length}. Returning empty list from flow.`
         );
-        return input.auctions; 
+        return []; // AI explicitly said no auctions are qualified
       }
 
-      const originalIdsSet = new Set(input.auctions.map(a => a.id));
+      // Validate for duplicate IDs in AI output
       const outputIdsSet = new Set(rankedIds);
-
       if (rankedIds.length !== outputIdsSet.size) {
         console.warn(
-          `[qualifyAuctionsFlow] AI qualification (IDs) output contained duplicate IDs. Input auctions count: ${input.auctions.length}, Unique output IDs count: ${outputIdsSet.size}. Query: "${input.query}". Returning original auction list order.`
+          `[qualifyAuctionsFlow] AI qualification (IDs) output contained duplicate IDs. Unique output IDs: ${outputIdsSet.size}, Total output IDs: ${rankedIds.length}. Query: "${input.query}". Falling back to original auction list order.`
         );
         return input.auctions;
       }
       
-      if (originalIdsSet.size !== outputIdsSet.size || !Array.from(originalIdsSet).every(id => outputIdsSet.has(id))) {
-        console.warn(
-          `[qualifyAuctionsFlow] AI qualification (IDs) output did not contain the exact same set of IDs as input. Input IDs count: ${originalIdsSet.size}, Output IDs count: ${outputIdsSet.size}. Query: "${input.query}". Returning original auction list order.`
-        );
-        return input.auctions; 
-      }
-
       const auctionMap = new Map(input.auctions.map(auction => [auction.id, auction]));
-      const reorderedAuctions: AIAuction[] = rankedIds.map(id => auctionMap.get(id)).filter(Boolean) as AIAuction[];
-      
-      if (reorderedAuctions.length !== input.auctions.length) {
-          console.error('[qualifyAuctionsFlow] Mismatch in reorderedAuctions length after mapping. This indicates a logic flaw. Returning original list.');
-          return input.auctions;
+      // Construct the list based on AI's ranked IDs, filtering out any IDs AI might have hallucinated
+      const reorderedAuctions: AIAuction[] = rankedIds
+        .map(id => auctionMap.get(id))
+        .filter(Boolean) as AIAuction[];
+
+      if (reorderedAuctions.length !== rankedIds.length) {
+          console.warn(`[qualifyAuctionsFlow] AI returned ${rankedIds.length} IDs, but only ${reorderedAuctions.length} could be mapped to original auctions. Some IDs might have been hallucinated. Query: "${input.query}". Proceeding with mapped auctions.`);
       }
       
-      console.log(`[qualifyAuctionsFlow] Successfully reordered ${reorderedAuctions.length} auctions based on AI-qualified and ranked IDs for query: "${input.query}".`);
+      console.log(`[qualifyAuctionsFlow] Successfully qualified and reordered ${reorderedAuctions.length} auctions (out of ${input.auctions.length} originally provided) for query: "${input.query}".`);
       return reorderedAuctions;
 
     } catch (e) {
       console.error(`[qualifyAuctionsFlow] Failed to qualify auctions for query "${input.query}", returning original list. Error:`, e);
-      return input.auctions; 
+      return input.auctions; // Fallback to full original list on critical error
     }
   }
 );

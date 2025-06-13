@@ -14,12 +14,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
 import { fetchItems } from '@/services/ebay-api-service';
-import { rankDeals as rankDealsAI } from '@/ai/flows/rank-deals'; // Updated import if function signature changed
+import { rankDeals as rankDealsAI } from '@/ai/flows/rank-deals';
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { GLOBAL_CURATED_DEALS_REQUEST_MARKER } from '@/lib/constants';
 
 const ITEMS_PER_PAGE = 8;
+const MIN_AI_QUALIFIED_ITEMS_THRESHOLD = 6;
 
 const AnalysisModal = dynamic(() =>
   import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
@@ -54,11 +55,11 @@ function HomePageContent() {
     setError(null);
     setIsAuthError(false);
 
-    let processedItems: BayBotItem[] = [];
+    let finalProcessedItems: BayBotItem[] = [];
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
     const isGlobalCuratedRequest = queryToLoad === '';
-    const fetchType = 'deal'; // Ensure this is 'deal'
+    const fetchType = 'deal';
     const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_DEALS_REQUEST_MARKER : queryToLoad;
     console.log(`[HomePage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
@@ -67,36 +68,64 @@ function HomePageContent() {
       console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items from server-side processing for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
 
       if (fetchedItems.length > 0) {
-        setIsRanking(true); // AI qualification/ranking stage
-        const aiQueryContext = queryToLoad || "general deals"; // Provide context for AI
+        setIsRanking(true);
+        const aiQueryContext = queryToLoad || "general deals";
 
         try {
           console.log(`[HomePage loadItems] Sending ${fetchedItems.length} pre-processed deals to AI for qualification/ranking. AI Query Context: "${aiQueryContext}"`);
-          // Pass BayBotItem[] and query directly as per the updated rankDeals signature
-          const qualifiedAndRankedItems: BayBotItem[] = await rankDealsAI(fetchedItems, aiQueryContext);
+          const aiQualifiedAndRankedItems: BayBotItem[] = await rankDealsAI(fetchedItems, aiQueryContext);
+          const aiCount = aiQualifiedAndRankedItems.length;
 
-          if (qualifiedAndRankedItems.length > 0) {
-              processedItems = qualifiedAndRankedItems;
-              const messageTitle = isGlobalCuratedRequest ? "Curated Deals: AI Qualified" : "Deals: AI Qualified";
-              const messageDesc = isGlobalCuratedRequest ? `Displaying AI-qualified deals for a popular category.` : `Displaying AI-qualified deals for "${queryToLoad}".`;
-              toastMessage = { title: messageTitle, description: messageDesc };
-              console.log(`[HomePage loadItems] AI successfully qualified and ranked ${processedItems.length} deals. Query: "${aiQueryContext}".`);
-          } else {
-              console.warn(`[HomePage loadItems] AI qualification returned no items or an empty list for query "${aiQueryContext}". Using server-processed list (${fetchedItems.length} items) as fallback.`);
-              processedItems = fetchedItems; // Fallback to server-processed list
-              const messageTitle = isGlobalCuratedRequest ? "Curated Deals: Server Processed" : "Deals: Server Processed";
-              const messageDesc = isGlobalCuratedRequest ? `Displaying server-processed deals for a popular category. AI found no further qualifications.` : `Displaying server-processed deals for "${queryToLoad}". AI found no further qualifications.`;
-              toastMessage = { title: messageTitle, description: messageDesc, variant: qualifiedAndRankedItems.length === 0 ? undefined : "destructive" };
+          if (aiCount > 0) {
+            finalProcessedItems = [...aiQualifiedAndRankedItems];
+            console.log(`[HomePage loadItems] AI successfully qualified and ranked ${aiCount} deals. Query: "${aiQueryContext}".`);
+
+            if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < fetchedItems.length) {
+              const aiQualifiedIds = new Set(aiQualifiedAndRankedItems.map(d => d.id));
+              const fallbackItems = fetchedItems.filter(d => !aiQualifiedIds.has(d.id));
+              const fallbackCount = fallbackItems.length;
+
+              if (fallbackCount > 0) {
+                finalProcessedItems.push(...fallbackItems);
+                console.log(`[HomePage loadItems] AI returned ${aiCount} (<${MIN_AI_QUALIFIED_ITEMS_THRESHOLD}) deals. Appending ${fallbackCount} server-processed fallback deals.`);
+                toastMessage = {
+                  title: isGlobalCuratedRequest ? "Curated Deals: AI Enhanced" : "Deals: AI Enhanced",
+                  description: isGlobalCuratedRequest 
+                    ? `Displaying ${aiCount} AI-qualified deals, plus ${fallbackCount} more from a popular category.` 
+                    : `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}", plus ${fallbackCount} more.`
+                };
+              } else {
+                 toastMessage = { 
+                    title: isGlobalCuratedRequest ? "Curated Deals: AI Qualified" : "Deals: AI Qualified",
+                    description: isGlobalCuratedRequest 
+                      ? `Displaying ${aiCount} AI-qualified deals from a popular category.` 
+                      : `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}".`
+                  };
+              }
+            } else { 
+              toastMessage = { 
+                title: isGlobalCuratedRequest ? "Curated Deals: AI Qualified" : "Deals: AI Qualified",
+                description: isGlobalCuratedRequest 
+                  ? `Displaying ${aiCount} AI-qualified deals from a popular category.` 
+                  : `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}".`
+              };
+            }
+          } else { 
+            console.warn(`[HomePage loadItems] AI qualification returned no items for query "${aiQueryContext}". Using server-processed list (${fetchedItems.length} items) as fallback.`);
+            finalProcessedItems = fetchedItems; 
+            const messageTitle = isGlobalCuratedRequest ? "Curated Deals: Server Processed" : "Deals: Server Processed";
+            const messageDesc = isGlobalCuratedRequest ? `Displaying server-processed deals for a popular category. AI found no further qualifications.` : `Displaying server-processed deals for "${queryToLoad}". AI found no further qualifications.`;
+            toastMessage = { title: messageTitle, description: messageDesc };
           }
         } catch (aiRankErrorCaught: any) {
           console.error("[HomePage loadItems] AI Qualification/Ranking failed:", aiRankErrorCaught);
-          processedItems = fetchedItems; // Fallback to server-processed list
+          finalProcessedItems = fetchedItems; 
           const messageTitle = isGlobalCuratedRequest ? "Curated Deals: AI Error" : "Deals: AI Error";
           const messageDesc = `AI processing failed. Displaying server-processed deals.`;
           toastMessage = { title: messageTitle, description: messageDesc, variant: "destructive"};
         }
       } else {
-         processedItems = [];
+         finalProcessedItems = [];
          if (queryToLoad) {
             toastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" after server processing.`};
          } else {
@@ -121,14 +150,14 @@ function HomePageContent() {
         }
       }
       setError(displayMessage);
-      processedItems = [];
+      finalProcessedItems = [];
     } finally {
-      setAllItems(processedItems);
-      setDisplayedItems(processedItems.slice(0, ITEMS_PER_PAGE));
+      setAllItems(finalProcessedItems);
+      setDisplayedItems(finalProcessedItems.slice(0, ITEMS_PER_PAGE));
       setVisibleItemCount(ITEMS_PER_PAGE);
       setIsLoading(false);
       setIsRanking(false);
-      console.log(`[HomePage loadItems] Finalizing. Displayed ${processedItems.slice(0, ITEMS_PER_PAGE).length} of ${processedItems.length} items.`);
+      console.log(`[HomePage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} items.`);
 
       if (toastMessage && !error) {
         toast(toastMessage);
@@ -136,7 +165,6 @@ function HomePageContent() {
         toast({title: "Error Loading Deals", description: "An unexpected error occurred.", variant: "destructive"});
       }
     }
-  // Removed mapToAIDeal from dependencies as it's no longer used here
   }, [toast]);
 
   useEffect(() => {
