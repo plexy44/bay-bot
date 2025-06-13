@@ -50,50 +50,66 @@ export default function HomePage() {
     setIsAuthError(false);
     let fetchedItems: BayBotItem[] = [];
     const isCuratedHomepage = view === 'deals' && !query;
+    let aiRankedSuccessfully = false;
 
     try {
       fetchedItems = await fetchItems(view, query, isCuratedHomepage);
       
       if ((query || isCuratedHomepage) && fetchedItems.length > 0 && view === 'deals') {
         setIsRanking(true);
+        const dealsForAI = fetchedItems.map(mapToAIDeal);
         try {
           const aiRankerInput: RankDealsInput = {
-            deals: fetchedItems.map(mapToAIDeal),
+            deals: dealsForAI,
             query: query || (isCuratedHomepage ? "general deals" : ""), 
           };
           const rankedAIDeals = await rankDealsAI(aiRankerInput);
           
-          const rankedMap = new Map(rankedAIDeals.map(d => [d.id, d]));
-          fetchedItems = fetchedItems
-            .filter(item => rankedMap.has(item.id)) 
-            .sort((a, b) => {
-                const indexA = rankedAIDeals.findIndex(d => d.id === a.id);
-                const indexB = rankedAIDeals.findIndex(d => d.id === b.id);
-                return indexA - indexB;
+          // Check if rankDealsAI returned a new, successfully ranked list
+          // The rankDealsFlow now returns the original `dealsForAI` reference if it failed or returned partial.
+          if (rankedAIDeals !== dealsForAI) {
+            const rankedMap = new Map(rankedAIDeals.map(d => [d.id, d]));
+            fetchedItems = fetchedItems
+              .filter(item => rankedMap.has(item.id)) // Safety filter
+              .sort((a, b) => {
+                  const indexA = rankedAIDeals.findIndex(d => d.id === a.id);
+                  const indexB = rankedAIDeals.findIndex(d => d.id === b.id);
+                  // Handle cases where an item might not be in rankedAIDeals (should be rare with rankDealsFlow fix)
+                  if (indexA === -1 && indexB === -1) return 0;
+                  if (indexA === -1) return 1; 
+                  if (indexB === -1) return -1;
+                  return indexA - indexB;
+              });
+            aiRankedSuccessfully = true;
+            toast({
+              title: isCuratedHomepage ? "Top Deals Curated by AI" : "Smart Ranking Applied",
+              description: isCuratedHomepage 
+                ? "Displaying AI-qualified and ranked top deals."
+                : "Items re-ordered by relevance, value, and other factors.",
             });
-          
-          fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-
-          toast({
-            title: isCuratedHomepage ? "Top Deals Curated" : "Smart Ranking Applied",
-            description: isCuratedHomepage 
-              ? "Displaying AI-qualified top deals, sorted by discount."
-              : "Items have been re-ordered by relevance and value, then discount.",
-          });
+          } else {
+            // AI ranking did not produce a new order (returned original list)
+             toast({
+                title: "AI Ranking Notice",
+                description: "AI ranking did not change the order. Displaying deals sorted by discount.",
+                variant: "default",
+              });
+          }
         } catch (rankError) {
           console.error("AI Ranking failed:", rankError);
           toast({
-            title: "AI Ranking Failed",
-            description: "Displaying default sorted items. AI ranking service might be unavailable.",
+            title: "AI Ranking Error",
+            description: "Displaying default sorted items (by discount). AI ranking service might be unavailable.",
             variant: "destructive",
           });
-          if (view === 'deals') {
-            fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-          }
         } finally {
           setIsRanking(false);
         }
-      } else if (view === 'deals' && fetchedItems.length > 0) {
+      }
+      
+      // If AI ranking was not successful or not attempted for deals, sort by discount.
+      // For auctions, AI ranking is not applied, so this won't run.
+      if (view === 'deals' && !aiRankedSuccessfully) {
         fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
       }
 
@@ -117,15 +133,12 @@ export default function HomePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast, mapToAIDeal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toast, mapToAIDeal, currentView, searchQuery]); // searchQuery added to deps
   
   useEffect(() => {
     // Initial load or when view/searchQuery changes
-    if (currentView === 'deals' && searchQuery === '') {
-      loadItems('deals', ''); // Load curated homepage deals
-    } else {
-      loadItems(currentView, searchQuery);
-    }
+     loadItems(currentView, searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, searchQuery]);
 
@@ -136,9 +149,6 @@ export default function HomePage() {
   
   const handleViewChange = (view: 'deals' | 'auctions') => {
     setCurrentView(view);
-    // If switching to deals and search query is empty, curated list will be loaded by useEffect
-    // If switching to auctions and search query is empty, it will search general auctions
-    // If query exists, it will be used for the new view
   };
 
   const handleLoadMore = () => {

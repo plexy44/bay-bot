@@ -65,14 +65,25 @@ const rankDealsFlow = ai.defineFlow(
   async input => {
     try {
       const {output} = await rankDealsPrompt(input);
-      if (!output) {
-        console.warn('AI ranking prompt returned no output, returning original list. Query:', input.query);
-        return input.deals; // Gracefully return original deals
+      // If AI returns no output OR returns a list of different length than input,
+      // consider it a failure to rank comprehensively, and return original deals.
+      if (!output || output.length !== input.deals.length) {
+        console.warn(
+          'AI ranking prompt returned no output or a list with an unexpected number of items. Input deals count:',
+          input.deals.length,
+          'Output deals count:',
+          output?.length ?? 0,
+          'Query:',
+          input.query,
+          'Returning original list.'
+        );
+        return input.deals; // Return the original input.deals array reference
       }
-      return output;
+      return output; // Return the new array from AI
     } catch (e) {
       console.error('Failed to rank deals, returning original list.', e);
-      return input.deals;
+      return input.deals; // Return the original input.deals array reference
     }
   }
 );
+
