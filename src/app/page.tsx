@@ -1,3 +1,4 @@
+
 'use client';
 
 import type React from 'react';
@@ -13,13 +14,14 @@ import type { BayBotItem } from '@/types';
 import { fetchItems, popularSearchTerms } from '@/lib/ebay-mock-api';
 import { rankDeals as rankDealsAI, type Deal as AIDeal, type RankDealsInput } from '@/ai/flows/rank-deals';
 import { useToast } from "@/hooks/use-toast";
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 
 const ITEMS_PER_PAGE = 8;
 
 export default function HomePage() {
   const [currentView, setCurrentView] = useState<'deals' | 'auctions'>('deals');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(''); // Initialize empty, will be set by useEffect
   const [displayedItems, setDisplayedItems] = useState<BayBotItem[]>([]);
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
@@ -32,22 +34,22 @@ export default function HomePage() {
 
   const { toast } = useToast();
 
-  const mapToAIDeal = (item: BayBotItem): AIDeal => ({
+  const mapToAIDeal = useCallback((item: BayBotItem): AIDeal => ({
     id: item.id,
     title: item.title,
     price: item.price,
     discountPercentage: item.discountPercentage || 0,
     sellerReputation: item.sellerReputation,
     imageUrl: item.imageUrl,
-  });
+  }), []);
 
-  const loadItems = useCallback(async (view: 'deals' | 'auctions', query: string = searchQuery) => {
+  const loadItems = useCallback(async (view: 'deals' | 'auctions', query: string) => {
     setIsLoading(true);
     setError(null);
     try {
       let fetchedItems = await fetchItems(view, query);
       
-      if (query && fetchedItems.length > 0) {
+      if (query && fetchedItems.length > 0 && view === 'deals') { // AI ranking only for deals with a query
         setIsRanking(true);
         try {
           const aiRankerInput: RankDealsInput = {
@@ -56,13 +58,10 @@ export default function HomePage() {
           };
           const rankedAIDeals = await rankDealsAI(aiRankerInput);
           
-          // Create a map for quick lookup of ranked items by ID
           const rankedMap = new Map(rankedAIDeals.map(d => [d.id, d]));
-          // Reorder fetchedItems based on rankedAIDeals, keeping original BayBotItem structure
           fetchedItems = fetchedItems
-            .filter(item => rankedMap.has(item.id)) // Ensure item was part of ranking
+            .filter(item => rankedMap.has(item.id)) 
             .sort((a, b) => {
-                // Find original index in rankedAIDeals (lower index means better rank)
                 const indexA = rankedAIDeals.findIndex(d => d.id === a.id);
                 const indexB = rankedAIDeals.findIndex(d => d.id === b.id);
                 return indexA - indexB;
@@ -79,7 +78,6 @@ export default function HomePage() {
             description: "Displaying default sorted items. AI ranking service might be unavailable.",
             variant: "destructive",
           });
-          // Fallback: sort by discount for deals if AI fails
           if (view === 'deals') {
             fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
           }
@@ -87,7 +85,6 @@ export default function HomePage() {
           setIsRanking(false);
         }
       } else if (view === 'deals' && fetchedItems.length > 0) {
-        // Default sort for deals if no query
         fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
       }
 
@@ -103,28 +100,35 @@ export default function HomePage() {
     } finally {
       setIsLoading(false);
     }
-  }, [searchQuery, toast]);
+  }, [toast, mapToAIDeal]);
 
   useEffect(() => {
-    // Initial load: pick a random popular search term for deals if no query
-    if (!searchQuery) {
-      const randomTerm = popularSearchTerms[Math.floor(Math.random() * popularSearchTerms.length)];
-      setSearchQuery(randomTerm); // This will trigger the effect below if we change it to watch searchQuery
-      loadItems('deals', randomTerm); // Or call directly
-    } else {
-       loadItems(currentView, searchQuery);
+    // Handles initial load (with random search for deals) and subsequent updates.
+    if (!searchQuery && currentView === 'deals') {
+      // If search query is empty and current view is deals (e.g., initial load scenario, or user clears search).
+      // This check ensures Math.random runs client-side.
+      if (typeof window !== "undefined" && popularSearchTerms.length > 0) {
+        const randomTerm = popularSearchTerms[Math.floor(Math.random() * popularSearchTerms.length)];
+        setSearchQuery(randomTerm); // This will trigger a re-render and this useEffect will run again with the new query.
+                                    // In the next run, the `else if` block below will execute loadItems.
+      } else if (popularSearchTerms.length === 0) {
+        // Fallback if popularSearchTerms is empty, load with empty query for deals
+        loadItems(currentView, '');
+      }
+      // If popularSearchTerms has items but Math.random hasn't run yet, we wait for the re-trigger.
+    } else if (searchQuery || currentView === 'auctions') {
+      // Load items if there's a search query, or if the view is auctions (which doesn't require a query to show something)
+      loadItems(currentView, searchQuery);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]); // searchQuery dependency removed to avoid double load on initial query set. Load is triggered by onSearch.
+  }, [currentView, searchQuery, loadItems]); // popularSearchTerms is constant, so not strictly needed.
 
   const handleSearch = (query: string) => {
-    setSearchQuery(query); // This will update the state
-    loadItems(currentView, query); // Explicitly call loadItems with new query
+    setSearchQuery(query); // Update state, useEffect will handle loading.
   };
   
   const handleViewChange = (view: 'deals' | 'auctions') => {
-    setCurrentView(view);
-    // searchQuery remains, loadItems will be called by useEffect due to currentView change
+    setCurrentView(view); // Update state, useEffect will handle loading.
   };
 
   const handleLoadMore = () => {
@@ -145,7 +149,7 @@ export default function HomePage() {
         onViewChange={handleViewChange}
         onSearch={handleSearch}
         searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
+        setSearchQuery={setSearchQuery} // Pass setSearchQuery for direct updates from AppHeader (e.g. logo click)
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
@@ -186,7 +190,10 @@ export default function HomePage() {
         )}
       </main>
       <footer className="text-center py-6 border-t border-border/40 text-sm text-muted-foreground">
-        <p>&copy; {new Date().getFullYear()} BayBot. All rights reserved.</p>
+        <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
+          <p>&copy; {new Date().getFullYear()} BayBot. All rights reserved.</p>
+          <ThemeToggle />
+        </div>
       </footer>
       <AnalysisModal
         item={selectedItemForAnalysis}
