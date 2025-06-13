@@ -16,8 +16,13 @@ export function ThemeToggle() {
 
   useEffect(() => {
     setMounted(true);
-    // The theme state should be correctly initialized by the useState callback.
-    // This effect is primarily for setting up the system theme listener.
+
+    // Defensively sync with DOM theme on mount.
+    // The useState initializer should generally suffice, but this is a safeguard.
+    const currentDomTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+    if (theme !== currentDomTheme) {
+      setTheme(currentDomTheme);
+    }
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleSystemThemeChange = (e: MediaQueryListEvent) => {
@@ -41,7 +46,6 @@ export function ThemeToggle() {
   }, []); // Empty dependency array: run once on mount.
 
   const toggleTheme = useCallback(() => {
-    // Use functional update for setTheme to ensure we're working with the latest state
     setTheme(prevTheme => {
       const newTheme = prevTheme === 'light' ? 'dark' : 'light';
       localStorage.setItem('theme', newTheme);

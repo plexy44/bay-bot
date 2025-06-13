@@ -31,7 +31,7 @@ export default function RootLayout({
                       return storedTheme;
                     }
                   } catch (e) {
-                    // Silently ignore localStorage access errors (e.g., in private browsing)
+                    // Silently ignore localStorage access errors
                   }
                   // Ensure window and matchMedia are available
                   if (typeof window !== 'undefined' && window.matchMedia) {
