@@ -167,7 +167,6 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
       ? parseFloat(browseItem.seller.feedbackPercentage)
       : 70; // Default reputation if not available
 
-    // Determine item type based on buyingOptions, falling back to filter if ambiguous
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
     const hasAuction = browseItem.buyingOptions?.includes('AUCTION');
     const hasFixedPrice = browseItem.buyingOptions?.includes('FIXED_PRICE');
@@ -177,13 +176,11 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
     } else if (hasAuction && !hasFixedPrice) {
         determinedItemType = 'auction';
     } else if (hasAuction && hasFixedPrice) {
-        // If both options are present, prefer the type passed from the initial filter
         determinedItemType = itemTypeFromFilter;
     }
-    // If neither is present, it's unusual, stick with itemTypeFromFilter as a last resort.
 
 
-    const description = browseItem.shortDescription || title; // Use title as fallback for description
+    const description = browseItem.shortDescription || title;
     const itemLink = browseItem.itemAffiliateWebUrl || browseItem.itemWebUrl;
 
 
@@ -252,13 +249,14 @@ export const fetchItems = async (
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
     filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}');
     if (isCuratedHomepage) {
-      filterOptions.push('price:[20..]'); // Less restrictive for curated homepage deals
+      filterOptions.push('price:[20..]');
     } else {
-      filterOptions.push('price:[100..]'); // Stricter for user-initiated deal searches
+      filterOptions.push('price:[100..]');
     }
+    browseApiUrl.searchParams.append('sort', 'bestMatch'); // Explicitly sort deals by bestMatch
   } else { // 'auction'
     filterOptions.push('buyingOptions:{AUCTION}');
-    browseApiUrl.searchParams.append('sort', '-itemEndDate');
+    browseApiUrl.searchParams.append('sort', 'itemEndDate'); // Sort auctions by ending soonest
   }
   browseApiUrl.searchParams.append('filter', filterOptions.join(','));
   console.log(`[BayBot Fetch] eBay API URL: ${browseApiUrl.toString()}`);
@@ -276,7 +274,7 @@ export const fetchItems = async (
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error(`eBay Browse API request failed: ${response.status} for query "${keywordsForApi}", type "${type}". Body: ${errorBody}`);
+      console.error(`eBay Browse API request failed: ${response.status} for query "${keywordsForApi}", type "${type}". URL: ${browseApiUrl.toString()}. Body: ${errorBody}`);
       throw new Error(`Failed to fetch from eBay Browse API (status ${response.status}). Check server logs for more details. eBay's response: ${errorBody.substring(0, 500)}`);
     }
 
@@ -285,7 +283,7 @@ export const fetchItems = async (
 
 
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
-      console.warn('No items found or unexpected API response structure from eBay Browse API for query:', keywordsForApi, 'type:', type, 'Data:', JSON.stringify(data, null, 2));
+      console.warn('No items found or unexpected API response structure from eBay Browse API for query:', keywordsForApi, 'type:', type, 'URL:', browseApiUrl.toString(), 'Data:', JSON.stringify(data, null, 2));
       fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
     }
@@ -304,7 +302,7 @@ export const fetchItems = async (
     return transformedItems;
 
   } catch (error) {
-    console.error(`Error in fetchItems for query "${keywordsForApi}", type "${type}":`, error);
+    console.error(`Error in fetchItems for query "${keywordsForApi}", type "${type}", URL: ${browseApiUrl.toString()}:`, error);
     if (error instanceof Error) {
         if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API") || error.message.includes("Failed to fetch from eBay Browse API") || error.message.includes('Critical eBay API Authentication Failure')) {
              throw error;
@@ -331,14 +329,15 @@ export async function getBatchedCuratedKeywordsQuery(): Promise<string> {
   }
 
   const shuffled = [...curatedHomepageSearchTerms].sort(() => 0.5 - Math.random());
-  // Ensure at least 1 term is selected, up to CURATED_BATCH_SIZE
   const batchSize = Math.max(1, Math.min(CURATED_BATCH_SIZE, shuffled.length)); 
   const selectedTerms = shuffled.slice(0, batchSize);
 
   if (selectedTerms.length === 0) {
-    // This case should ideally not be reached due to Math.max(1, ...)
     return "featured deals"; 
   }
-
-  return selectedTerms.map(term => `(${term})`).join(' OR ');
+  // Format: (keyword1) OR (keyword2) OR (keyword3)
+  return selectedTerms.map(term => `(${encodeURIComponent(term)})`).join(' OR ');
 }
+
+
+    
