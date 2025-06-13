@@ -1,8 +1,9 @@
+
 export interface BayBotItem {
   id: string;
   type: 'deal' | 'auction';
   title: string;
-  description: string;
+  description: string; // Might be shorter with Browse API (shortDescription)
   imageUrl: string;
   price: number; // current price for deal, current bid for auction
   originalPrice?: number; // RRP or original price for deals
@@ -12,6 +13,8 @@ export interface BayBotItem {
   endTime?: string; // ISO date string, for auctions
   timeLeft?: string; // Human-readable time left, for auctions
   bidCount?: number; // For auctions
+  // UI specific
+  'data-ai-hint'?: string; // For placeholder image search hint
 }
 
 // For AI analysis modal
