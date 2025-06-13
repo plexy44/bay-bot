@@ -1,3 +1,4 @@
+
 'use client';
 
 import type React from 'react';
@@ -75,9 +76,9 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[525px] bg-card">
+      <DialogContent className="sm:max-w-[525px] glass-popover"> {/* Applied glass effect */}
         <DialogHeader>
-          <DialogTitle className="font-headline text-2xl flex items-center">
+          <DialogTitle className="font-headline text-2xl flex items-center text-foreground">
             <Zap className="w-6 h-6 mr-2 text-primary" /> AI Analysis: {item.title}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
@@ -104,7 +105,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
                   <h3 className="text-sm font-medium text-foreground">Risk Score</h3>
                   <span className="text-sm font-semibold text-primary">{animatedRiskScore}/100</span>
                 </div>
-                <Progress value={animatedRiskScore} aria-label="Risk score" className="h-3 [&>div]:bg-destructive" />
+                <Progress value={animatedRiskScore} aria-label="Risk score" className="h-3 [&>div]:bg-destructive/80 bg-destructive/20 backdrop-blur-sm" />
                 <p className="text-xs text-muted-foreground">Higher score indicates higher risk (e.g., too good to be true, poor seller).</p>
               </div>
               <div className="space-y-2">
@@ -112,7 +113,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
                   <h3 className="text-sm font-medium text-foreground">Rarity Score</h3>
                    <span className="text-sm font-semibold text-primary">{animatedRarityScore}/100</span>
                 </div>
-                <Progress value={animatedRarityScore} aria-label="Rarity score" className="h-3 [&>div]:bg-primary" />
+                <Progress value={animatedRarityScore} aria-label="Rarity score" className="h-3 [&>div]:bg-primary/80 bg-primary/20 backdrop-blur-sm" />
                  <p className="text-xs text-muted-foreground">Higher score indicates a rarer find or exceptional value.</p>
               </div>
               <div>
@@ -120,15 +121,17 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
                   <Sparkles className="w-4 h-4 mr-2 text-primary" />
                   AI Summary
                 </h3>
-                <p className="text-sm bg-secondary/50 p-3 rounded-md text-secondary-foreground leading-relaxed">{analysis.summary}</p>
+                <p className="text-sm bg-secondary/50 p-3 rounded-md text-secondary-foreground leading-relaxed backdrop-blur-sm border border-border/20">{analysis.summary}</p>
               </div>
             </>
           )}
         </div>
-         <div className="pt-4 border-t border-border">
-            <Button onClick={onClose} variant="outline" className="w-full">Close</Button>
+         <div className="pt-4 border-t border-border/50"> {/* Slightly more opaque border */}
+            <Button onClick={onClose} variant="outline" className="w-full interactive-glow">Close</Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 };
+
+    

@@ -1,3 +1,4 @@
+
 import type React from 'react';
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
@@ -20,7 +21,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/60 backdrop-blur-lg supports-[backdrop-filter]:bg-background/40">
       <div className="container flex h-16 max-w-screen-2xl items-center">
         <div className="mr-4 flex items-center">
           <Zap className="h-6 w-6 mr-2 text-primary" />
@@ -33,11 +34,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
               <Input
                 type="search"
                 placeholder="Search items..."
-                className="h-9 flex-1"
+                className="h-9 flex-1 bg-input/50 backdrop-blur-sm border-border/50 focus:bg-input/70"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
-              <Button type="submit" size="sm" className="h-9">
+              <Button type="submit" size="sm" className="h-9 interactive-glow">
                 <Search className="h-4 w-4" />
                 <span className="sr-only">Search</span>
               </Button>
@@ -46,9 +47,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
           
           <nav className="flex items-center">
              <Tabs value={currentView} onValueChange={(value) => onViewChange(value as 'deals' | 'auctions')} className="hidden md:block">
-              <TabsList>
-                <TabsTrigger value="deals">Deals</TabsTrigger>
-                <TabsTrigger value="auctions">Auctions</TabsTrigger>
+              <TabsList className="bg-muted/50 backdrop-blur-sm">
+                <TabsTrigger value="deals" className="baybot-tabs-trigger">Deals</TabsTrigger>
+                <TabsTrigger value="auctions" className="baybot-tabs-trigger">Auctions</TabsTrigger>
               </TabsList>
             </Tabs>
           </nav>
@@ -56,12 +57,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
       </div>
        <div className="md:hidden p-2 border-t border-border/40">
           <Tabs value={currentView} onValueChange={(value) => onViewChange(value as 'deals' | 'auctions')} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="deals">Deals</TabsTrigger>
-              <TabsTrigger value="auctions">Auctions</TabsTrigger>
+            <TabsList className="grid w-full grid-cols-2 bg-muted/50 backdrop-blur-sm">
+              <TabsTrigger value="deals" className="baybot-tabs-trigger">Deals</TabsTrigger>
+              <TabsTrigger value="auctions" className="baybot-tabs-trigger">Auctions</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
     </header>
   );
 };
+
+    
