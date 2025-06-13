@@ -4,8 +4,6 @@
 import type { BayBotItem } from '@/types';
 import {
   curatedHomepageSearchTerms,
-  // GLOBAL_CURATED_DEALS_REQUEST_MARKER, // No longer used directly by fetchItems
-  // GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER, // No longer used directly by fetchItems
   STANDARD_CACHE_TTL_MS,
   GLOBAL_CURATED_CACHE_TTL_MS,
   EXCLUSION_KEYWORDS,
@@ -150,21 +148,24 @@ function getHighResolutionImageUrl(originalUrl?: string): string {
 function transformBrowseItem(
   browseItem: BrowseApiItemSummary,
   itemTypeFromFilter: 'deal' | 'auction',
-  keywordsUsedForApi: string // Renamed for clarity
+  keywordsUsedForApi: string 
 ): BayBotItem | null {
   try {
     const id = browseItem.itemId;
     const title = browseItem.title.trim();
     const lowerTitle = title.toLowerCase();
-    const lowerKeywords = keywordsUsedForApi.toLowerCase();
+    const lowerKeywords = typeof keywordsUsedForApi === 'string' ? keywordsUsedForApi.toLowerCase() : "";
+
 
     for (const exclusionKeyword of EXCLUSION_KEYWORDS) {
       if (lowerTitle.includes(exclusionKeyword)) {
         let isExclusionInQuery = false;
-        const queryWords = lowerKeywords.split(' ');
-        const exclusionWords = exclusionKeyword.split(' ');
-        if (exclusionWords.every(exWord => queryWords.includes(exWord))) {
-             isExclusionInQuery = true;
+        if (lowerKeywords) { // Ensure lowerKeywords is not empty before splitting
+            const queryWords = lowerKeywords.split(' ');
+            const exclusionWords = exclusionKeyword.split(' ');
+            if (exclusionWords.every(exWord => queryWords.includes(exWord))) {
+                isExclusionInQuery = true;
+            }
         }
 
         if (!isExclusionInQuery) {
@@ -278,10 +279,10 @@ export async function getRandomPopularSearchTerm(): Promise<string> {
 
 export const fetchItems = async (
   type: 'deal' | 'auction',
-  query: string, // This is the direct query string from the caller
+  query: string, 
   isGlobalCuratedRequest: boolean = false
 ): Promise<BayBotItem[]> => {
-  const keywordsForApi = query; // Use the passed 'query' as the keywords for API and checks
+  const keywordsForApi = query; 
 
   const cacheKeySuffix = keywordsForApi;
   console.log(`[BayBot Fetch] Type: '${type}'. API Query: "${keywordsForApi}". Global Curated: ${isGlobalCuratedRequest}`);
@@ -301,8 +302,13 @@ export const fetchItems = async (
   }
   console.log(`[Cache MISS] Fetching items. Type: "${type}", API Query: "${keywordsForApi}", Global Curated: ${isGlobalCuratedRequest}`);
 
-  if (!keywordsForApi || keywordsForApi.trim() === '') {
-      console.warn(`[BayBot Fetch] 'keywordsForApi' (derived from query) resolved to an empty string or was null/undefined for type "${type}". API Query attempted: "${keywordsForApi}". Returning empty array.`);
+  if (typeof keywordsForApi !== 'string') {
+    console.warn(`[BayBot Fetch] 'keywordsForApi' was not a string. Received type: ${typeof keywordsForApi}, value: ${keywordsForApi}. Original query value: "${query}". For Type: "${type}", Global Curated: ${isGlobalCuratedRequest}. Returning empty array.`);
+    return [];
+  }
+
+  if (keywordsForApi.trim() === '') {
+      console.warn(`[BayBot Fetch] 'keywordsForApi' (derived from query) resolved to an empty string after trim for type "${type}". API Query attempted: "${keywordsForApi}". Returning empty array.`);
       return [];
   }
 
@@ -329,11 +335,11 @@ export const fetchItems = async (
 
     if (isGlobalCuratedRequest) {
       filterOptions.push('price:[20..]');
-      sortOption = null;
+      sortOption = null; 
       console.log(`[BayBot Fetch Logic] Global Curated Deal: Price filter [20..], No server sort by API (will sort post-fetch).`);
     } else {
       filterOptions.push('price:[1..]');
-      sortOption = 'price';
+      sortOption = 'price'; 
       console.log(`[BayBot Fetch Logic] User Searched Deal: Price filter [1..], API Sort by 'price'.`);
     }
   }
@@ -404,18 +410,20 @@ export const fetchItems = async (
             transformedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
             console.log(`[eBay Service Sort] Sorted ${transformedItems.length} global curated deals by discount percentage.`);
         } else {
+            // For user-searched deals, sort by discount, then seller reputation, then price (ascending)
             transformedItems.sort((a, b) => {
                 const discountDiff = (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0);
                 if (discountDiff !== 0) return discountDiff;
-                const reputationDiff = (b.sellerReputation ?? 0) - (a.sellerReputation ?? 0);
+                const reputationDiff = (b.sellerReputation ?? 0) - (a.sellerReputation ?? 0); // Higher reputation first
                 if (reputationDiff !== 0) return reputationDiff;
-                return (a.price ?? Infinity) - (b.price ?? Infinity);
+                return (a.price ?? Infinity) - (b.price ?? Infinity); // Lower price first
             });
             console.log(`[eBay Service Sort] Sorted ${transformedItems.length} user-searched deals by discount -> reputation -> price.`);
         }
     }
+    // Auctions are primarily sorted by 'endingSoonest' via the API, no additional client-side sort needed here for that.
 
-    const finalItems = transformedItems.filter(item => item.type === type);
+    const finalItems = transformedItems.filter(item => item.type === type); // Final check
     if (finalItems.length !== transformedItems.length) {
       console.warn(`[eBay Service Type Filter] Final type filter removed ${transformedItems.length - finalItems.length} items that did not match requested type '${type}'. This should ideally not happen if transformBrowseItem is correct.`);
     }
@@ -428,14 +436,14 @@ export const fetchItems = async (
   } catch (error) {
     console.error(`[eBay Service Fetch Error] Error in fetchItems for query "${keywordsForApi}", type "${type}", URL: ${browseApiUrl.toString()}:`, error);
     if (error instanceof Error) {
+        // Re-throw specific, identifiable errors
         if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API") || error.message.includes("Failed to fetch from eBay Browse API") || error.message.includes('Critical eBay API Authentication Failure')) {
-             throw error; 
+             throw error; // Propagate known critical errors
         }
+        // Generalize other errors slightly for client-side display, but keep detail for server logs
         throw new Error(`Failed to fetch eBay items: ${error.message}. Original error type: ${error.constructor.name}`);
     }
+    // Fallback for non-Error objects
     throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}.`);
   }
 };
-
-
-    
