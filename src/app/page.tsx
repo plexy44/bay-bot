@@ -2,8 +2,9 @@
 'use client';
 
 import type React from 'react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import dynamic from 'next/dynamic';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/baybot/AppHeader';
 import { ItemCard } from '@/components/baybot/ItemCard';
 import { ItemGridLoadingSkeleton } from '@/components/baybot/LoadingSkeleton';
@@ -25,8 +26,12 @@ const AnalysisModal = dynamic(() =>
   { ssr: false, loading: () => <ItemGridLoadingSkeleton count={1} /> }
 );
 
-export default function HomePage() { // This is the Curated Deals page at '/'
-  const [searchQuery, setSearchQuery] = useState('');
+function HomePageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentQueryFromUrl = searchParams.get('q') || '';
+
+  const [inputValue, setInputValue] = useState(currentQueryFromUrl);
   const [displayedItems, setDisplayedItems] = useState<BayBotItem[]>([]);
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
@@ -49,8 +54,8 @@ export default function HomePage() { // This is the Curated Deals page at '/'
     imageUrl: item.imageUrl,
   }), []);
 
-  const loadItems = useCallback(async (queryFromSearchState: string) => {
-    console.log(`[HomePage loadItems] Initiating. Query from state: "${queryFromSearchState}"`);
+  const loadItems = useCallback(async (queryToLoad: string) => {
+    console.log(`[HomePage loadItems] Initiating. Query to load: "${queryToLoad}"`);
     setAllItems([]);
     setDisplayedItems([]);
     setIsLoading(true);
@@ -61,9 +66,9 @@ export default function HomePage() { // This is the Curated Deals page at '/'
     let processedItems: BayBotItem[] = [];
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
-    const isGlobalCuratedRequest = queryFromSearchState === '';
+    const isGlobalCuratedRequest = queryToLoad === '';
     const fetchType = 'deals';
-    const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_DEALS_REQUEST_MARKER : queryFromSearchState;
+    const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_DEALS_REQUEST_MARKER : queryToLoad;
     console.log(`[HomePage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
     try {
@@ -72,16 +77,13 @@ export default function HomePage() { // This is the Curated Deals page at '/'
 
       if (fetchedItems.length > 0) {
         if (isGlobalCuratedRequest) {
-          // For global curated deals, sort by discount client-side if AI isn't ranking (or as fallback)
-          // AI ranking happens below if not a global request or if specifically implemented for it
           processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
           toastMessage = { title: "Curated Deals", description: `Displaying deals for a popular category, sorted by discount.` };
           console.log(`[HomePage loadItems] Global curated deals (${processedItems.length}) sorted by discount.`);
         } else {
-          // For user-searched deals, attempt AI ranking
           setIsRanking(true);
           const dealsInputForAI: AIDeal[] = fetchedItems.map(mapToAIDeal);
-          const aiQueryContext = queryFromSearchState;
+          const aiQueryContext = queryToLoad;
 
           try {
             const aiRankerInput: RankDealsInput = { deals: dealsInputForAI, query: aiQueryContext };
@@ -99,12 +101,12 @@ export default function HomePage() { // This is the Curated Deals page at '/'
                 return posA - posB;
               });
               processedItems = sortedFetchedItems;
-              toastMessage = { title: "Deals: AI Ranked", description: `Displaying AI-ranked deals for "${queryFromSearchState}".` };
+              toastMessage = { title: "Deals: AI Ranked", description: `Displaying AI-ranked deals for "${queryToLoad}".` };
               console.log(`[HomePage loadItems] AI successfully ranked ${processedItems.length} deals for query: "${aiQueryContext}".`);
             } else {
               console.warn(`[HomePage loadItems] AI ranking issue or no change for query "${aiQueryContext}". Fallback: Sorting ${fetchedItems.length} deals by discount.`);
               processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-              toastMessage = { title: "Deals: Sorted by Discount", description: `Displaying deals for "${queryFromSearchState}" by discount. AI ranking may have had an issue or no effect.` };
+              toastMessage = { title: "Deals: Sorted by Discount", description: `Displaying deals for "${queryToLoad}" by discount. AI ranking may have had an issue or no effect.` };
             }
           } catch (aiRankErrorCaught: any) {
             console.error("[HomePage loadItems] AI Ranking failed for user search:", aiRankErrorCaught);
@@ -114,12 +116,12 @@ export default function HomePage() { // This is the Curated Deals page at '/'
         }
       } else {
          processedItems = [];
-         if (queryFromSearchState) {
-            toastMessage = { title: "No Deals Found", description: `No deals found for "${queryFromSearchState}".`};
+         if (queryToLoad) {
+            toastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}".`};
          } else {
             toastMessage = { title: "No Curated Deals", description: "No global curated deals found for the sampled category at this time."};
          }
-         console.log(`[HomePage loadItems] No items fetched or processed. isGlobalCuratedRequest: ${isGlobalCuratedRequest}, query: "${queryFromSearchState}"`);
+         console.log(`[HomePage loadItems] No items fetched or processed. isGlobalCuratedRequest: ${isGlobalCuratedRequest}, query: "${queryToLoad}"`);
       }
     } catch (e: any) {
       console.error(`[HomePage loadItems] Failed to load items. Query/Marker '${effectiveQueryForEbay}'. Error:`, e);
@@ -153,20 +155,19 @@ export default function HomePage() { // This is the Curated Deals page at '/'
         toast({title: "Error Loading Deals", description: "An unexpected error occurred.", variant: "destructive"});
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast, mapToAIDeal]);
 
   useEffect(() => {
-    console.log(`[HomePage initial load useEffect] Triggering loadItems. Initial searchQuery: "${searchQuery}"`);
-    loadItems(searchQuery);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadItems]);
+    console.log(`[HomePage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
+    setInputValue(currentQueryFromUrl); // Sync input field with URL
+    loadItems(currentQueryFromUrl);
+  }, [currentQueryFromUrl, loadItems]);
 
 
-  const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
-    loadItems(query);
-  }, [loadItems]);
+  const handleSearchSubmit = useCallback((query: string) => {
+    const newPath = query ? `/?q=${encodeURIComponent(query)}` : '/';
+    router.push(newPath);
+  }, [router]);
 
 
   const handleLoadMore = () => {
@@ -181,16 +182,20 @@ export default function HomePage() { // This is the Curated Deals page at '/'
   };
 
   let noItemsTitle = "No Deals Found";
-  let noItemsDescription = searchQuery
-    ? `Try adjusting your search for "${searchQuery}".`
+  let noItemsDescription = currentQueryFromUrl
+    ? `Try adjusting your search for "${currentQueryFromUrl}".`
     : "No global curated deals available for the sampled category right now. Check back later!";
 
   return (
     <div className="flex flex-col min-h-screen">
       <AppHeader
-        onSearch={handleSearch}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
+        searchInputValue={inputValue}
+        onSearchInputChange={setInputValue}
+        onSearchSubmit={handleSearchSubmit}
+        onLogoClick={() => {
+          setInputValue(''); // Clear input visually
+          router.push('/'); // Navigate and trigger loadItems via useEffect
+        }}
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
@@ -224,7 +229,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
           </>
         )}
       </main>
-      <footer className="sticky bottom-0 z-10 text-center py-6 border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
+      <footer className="sticky bottom-0 z-10 h-16 flex items-center text-center border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
         <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
           <p>&copy; {new Date().getFullYear()} BayBot. All rights reserved.</p>
           <ThemeToggle />
@@ -238,5 +243,13 @@ export default function HomePage() { // This is the Curated Deals page at '/'
         />
       )}
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}>
+      <HomePageContent />
+    </Suspense>
   );
 }

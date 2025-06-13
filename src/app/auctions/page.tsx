@@ -2,8 +2,9 @@
 'use client';
 
 import type React from 'react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import dynamic from 'next/dynamic';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/baybot/AppHeader';
 import { ItemCard } from '@/components/baybot/ItemCard';
 import { ItemGridLoadingSkeleton } from '@/components/baybot/LoadingSkeleton';
@@ -24,8 +25,12 @@ const AnalysisModal = dynamic(() =>
   { ssr: false, loading: () => <ItemGridLoadingSkeleton count={1} /> }
 );
 
-export default function AuctionsPage() {
-  const [searchQuery, setSearchQuery] = useState('');
+function AuctionsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentQueryFromUrl = searchParams.get('q') || '';
+
+  const [inputValue, setInputValue] = useState(currentQueryFromUrl);
   const [displayedItems, setDisplayedItems] = useState<BayBotItem[]>([]);
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
@@ -38,8 +43,8 @@ export default function AuctionsPage() {
 
   const { toast } = useToast();
 
-  const loadItems = useCallback(async (queryFromSearchState: string) => {
-    console.log(`[AuctionsPage loadItems] Initiating. Query from state: "${queryFromSearchState}"`);
+  const loadItems = useCallback(async (queryToLoad: string) => {
+    console.log(`[AuctionsPage loadItems] Initiating. Query to load: "${queryToLoad}"`);
     setAllItems([]);
     setDisplayedItems([]);
     setIsLoading(true);
@@ -49,27 +54,26 @@ export default function AuctionsPage() {
     let processedItems: BayBotItem[] = [];
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
-    const isGlobalCuratedRequest = queryFromSearchState === '';
-    const fetchType = 'auctions';
-    const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER : queryFromSearchState;
+    const isGlobalCuratedRequest = queryToLoad === '';
+    const fetchType = 'auction'; // Ensure this is 'auction'
+    const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER : queryToLoad;
     console.log(`[AuctionsPage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
     try {
       let fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
       console.log(`[AuctionsPage loadItems] Fetched ${fetchedItems.length} items for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
 
-      // Auctions are already sorted by API (endingSoonest) via fetchItems
-      processedItems = fetchedItems;
+      processedItems = fetchedItems; // Auctions are already sorted by API (endingSoonest) via fetchItems
 
       if (processedItems.length > 0) {
         if (isGlobalCuratedRequest) {
           toastMessage = { title: "Curated Auctions", description: "Displaying auctions from a popular category, ending soonest."};
         } else {
-          toastMessage = { title: "Auctions Loaded", description: `Displaying auctions for "${queryFromSearchState}", ending soonest.`};
+          toastMessage = { title: "Auctions Loaded", description: `Displaying auctions for "${queryToLoad}", ending soonest.`};
         }
       } else {
-         if (queryFromSearchState) {
-            toastMessage = { title: "No Auctions Found", description: `No auctions found for "${queryFromSearchState}".`};
+         if (queryToLoad) {
+            toastMessage = { title: "No Auctions Found", description: `No auctions found for "${queryToLoad}".`};
          } else {
             toastMessage = { title: "No Curated Auctions", description: "No global curated auctions found for the sampled category at this time."};
          }
@@ -106,20 +110,19 @@ export default function AuctionsPage() {
          toast({title: "Error Loading Auctions", description: "An unexpected error occurred.", variant: "destructive"});
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast]);
 
   useEffect(() => {
-    console.log(`[AuctionsPage initial load useEffect] Triggering loadItems. Initial searchQuery: "${searchQuery}"`);
-    loadItems(searchQuery);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadItems]);
+    console.log(`[AuctionsPage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
+    setInputValue(currentQueryFromUrl); // Sync input field with URL
+    loadItems(currentQueryFromUrl);
+  }, [currentQueryFromUrl, loadItems]);
 
 
-  const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query);
-    loadItems(query);
-  }, [loadItems]);
+  const handleSearchSubmit = useCallback((query: string) => {
+    const newPath = query ? `/auctions?q=${encodeURIComponent(query)}` : '/auctions';
+    router.push(newPath);
+  }, [router]);
 
 
   const handleLoadMore = () => {
@@ -134,17 +137,21 @@ export default function AuctionsPage() {
   };
 
   let noItemsTitle = "No Auctions Found";
-  let noItemsDescription = searchQuery
-    ? `Try adjusting your search for "${searchQuery}".`
+  let noItemsDescription = currentQueryFromUrl
+    ? `Try adjusting your search for "${currentQueryFromUrl}".`
     : "No global curated auctions available for the sampled category at the moment. Check back later!";
 
 
   return (
     <div className="flex flex-col min-h-screen">
       <AppHeader
-        onSearch={handleSearch}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
+        searchInputValue={inputValue}
+        onSearchInputChange={setInputValue}
+        onSearchSubmit={handleSearchSubmit}
+        onLogoClick={() => {
+          setInputValue(''); // Clear input visually
+          router.push('/'); // Navigate to Deals homepage and clear query
+        }}
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
@@ -178,7 +185,7 @@ export default function AuctionsPage() {
           </>
         )}
       </main>
-      <footer className="sticky bottom-0 z-10 text-center py-6 border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
+      <footer className="sticky bottom-0 z-10 h-16 flex items-center text-center border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
         <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
           <p>&copy; {new Date().getFullYear()} BayBot. All rights reserved.</p>
           <ThemeToggle />
@@ -194,3 +201,12 @@ export default function AuctionsPage() {
     </div>
   );
 }
+
+export default function AuctionsPage() {
+  return (
+    <Suspense fallback={<ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}>
+      <AuctionsPageContent />
+    </Suspense>
+  );
+}
+
