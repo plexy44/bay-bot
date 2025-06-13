@@ -1,30 +1,33 @@
 
 import Image from 'next/image';
-import React from 'react'; // Import React
+import React from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Percent, Tag, TrendingUp, ShieldCheck, Eye } from "lucide-react";
+import { Clock, Percent, Tag, TrendingUp, ShieldCheck, ExternalLink } from "lucide-react"; // Added ExternalLink
 import type { BayBotItem } from '@/types';
 
 interface ItemCardProps {
   item: BayBotItem;
-  onAnalyze: (item: BayBotItem) => void;
+  // onAnalyze prop is removed as per user request to replace button functionality
 }
 
-const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
+const ItemCardComponent: React.FC<ItemCardProps> = ({ item }) => {
+  const canViewItem = !!item.itemLink;
+  const buttonText = item.type === 'deal' ? "View Deal" : "View Auction";
+
   return (
     <div className="flex flex-col overflow-hidden h-full glass-card transition-all duration-300 ease-out hover:shadow-[0_0_35px_3px_hsla(var(--primary-hsl),0.25)] hover:-translate-y-1.5">
       <CardHeader className="p-0 relative">
         <div className="aspect-video relative">
           <Image
-            src={item.imageUrl || 'https://placehold.co/600x400.png'} // Fallback if imageUrl is missing
+            src={item.imageUrl || 'https://placehold.co/600x400.png'}
             alt={item.title}
             fill
-            className="object-cover rounded-t-lg" 
+            className="object-cover rounded-t-lg"
             data-ai-hint={item['data-ai-hint'] || item.title.toLowerCase().split(' ').slice(0,2).join(' ')}
-            unoptimized={item.imageUrl?.includes('ebayimg.com')} // Avoid Next.js optimization for external dynamic eBay images
-            priority={false} // Standard priority for cards in a grid
+            unoptimized={item.imageUrl?.includes('ebayimg.com')}
+            priority={false}
           />
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
             <Badge variant="destructive" className="absolute top-3 right-3 shadow-lg bg-destructive/80 backdrop-blur-sm text-destructive-foreground">
@@ -42,7 +45,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
             <p className="text-sm text-muted-foreground line-through">£{item.originalPrice.toFixed(2)}</p>
           )}
         </div>
-        
+
         <div className="text-xs text-muted-foreground space-y-1">
           {item.type === 'auction' && item.timeLeft && (
             <div className="flex items-center">
@@ -63,10 +66,19 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
         </div>
       </CardContent>
       <CardFooter className="p-4 pt-0">
-        <Button onClick={() => onAnalyze(item)} className="w-full interactive-glow" variant="outline" disabled={item.type === 'auction'}>
-          <Eye className="h-4 w-4 mr-2" />
-          {item.type === 'deal' ? 'Analyze Deal' : 'Analysis N/A'}
-        </Button>
+        {canViewItem ? (
+          <Button className="w-full mt-3 interactive-glow" variant="outline" asChild>
+            <a href={item.itemLink} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="h-4 w-4 mr-2" />
+              {buttonText}
+            </a>
+          </Button>
+        ) : (
+          <Button className="w-full mt-3 interactive-glow" variant="outline" disabled>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            {buttonText} N/A
+          </Button>
+        )}
       </CardFooter>
     </div>
   );
@@ -74,3 +86,4 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
 
 export const ItemCard = React.memo(ItemCardComponent);
 ItemCard.displayName = 'ItemCard';
+

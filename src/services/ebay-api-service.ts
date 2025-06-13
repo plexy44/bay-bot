@@ -123,7 +123,7 @@ interface BrowseApiItemSummary {
     discountAmount?: { value: string; currency: string };
   };
   condition?: string;
-  conditionId?: string; // For filtering
+  conditionId?: string;
 }
 
 function getHighResolutionImageUrl(originalUrl?: string): string {
@@ -160,12 +160,12 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
     if (discountPercentageValue === undefined && originalPriceValue !== undefined && currentPriceValue < originalPriceValue) {
       discountPercentageValue = calculateDiscountPercentage(currentPriceValue, originalPriceValue);
     }
-     discountPercentageValue = discountPercentageValue || 0;
+    discountPercentageValue = discountPercentageValue || 0;
 
 
     const sellerReputation = browseItem.seller?.feedbackPercentage
       ? parseFloat(browseItem.seller.feedbackPercentage)
-      : 70; 
+      : 70;
 
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
     if (browseItem.buyingOptions?.includes('FIXED_PRICE') && !browseItem.buyingOptions?.includes('AUCTION')) {
@@ -173,13 +173,12 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
     } else if (browseItem.buyingOptions?.includes('AUCTION') && !browseItem.buyingOptions?.includes('FIXED_PRICE')) {
         determinedItemType = 'auction';
     } else if (browseItem.buyingOptions?.includes('AUCTION') && browseItem.buyingOptions?.includes('FIXED_PRICE')) {
-        determinedItemType = itemTypeFromFilter;
+        determinedItemType = itemTypeFromFilter; // Default to filter if both are present
     }
 
+    const description = browseItem.shortDescription || title;
+    const itemLink = browseItem.itemAffiliateWebUrl || browseItem.itemWebUrl;
 
-    const description = browseItem.shortDescription ||
-                        (browseItem.itemWebUrl ? `View this item on eBay: ${browseItem.itemWebUrl}` :
-                        (browseItem.itemAffiliateWebUrl ? `View this item on eBay: ${browseItem.itemAffiliateWebUrl}` : title));
 
     const bayBotItem: BayBotItem = {
       id,
@@ -191,6 +190,7 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
       originalPrice: originalPriceValue,
       discountPercentage: discountPercentageValue,
       sellerReputation,
+      itemLink,
       'data-ai-hint': title.toLowerCase().split(' ').slice(0, 2).join(' '),
       condition: browseItem.condition,
     };
@@ -211,8 +211,8 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
 
 export const fetchItems = async (
   type: 'deal' | 'auction',
-  query: string, 
-  isCuratedHomepage: boolean = false 
+  query: string,
+  isCuratedHomepage: boolean = false
 ): Promise<BayBotItem[]> => {
   const cacheKey = `browse:${type}:${query}:${isCuratedHomepage}`;
 
@@ -229,27 +229,25 @@ export const fetchItems = async (
   console.log(`[Cache MISS] Fetching items from Browse API for key: ${cacheKey}`);
 
   const authToken = await getEbayAuthToken();
-  
-  const keywordsForApi = query; 
+
+  const keywordsForApi = query;
   if (!keywordsForApi) {
-      console.warn(`[BayBot Fetch] query was empty, which is unexpected at this stage. Using a fallback. This should be handled by the caller.`);
-      // This part should ideally not be reached if page.tsx handles query provision.
-      // For safety, return empty or use a very generic fallback.
-      return []; 
+      console.warn(`[BayBot Fetch] query was empty. This should be handled by the caller with a default.`);
+      return [];
   }
 
-  const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search'); 
+  const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search');
   browseApiUrl.searchParams.append('q', keywordsForApi);
   browseApiUrl.searchParams.append('limit', '100');
 
   let filterOptions = ['itemLocationCountry:GB'];
   if (type === 'deal') {
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
-    filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}'); // Added condition filter for deals
-    filterOptions.push('price:[20..]'); // Added minimum price filter for deals (e.g., £20)
-  } else { 
+    filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}');
+    filterOptions.push('price:[100..]'); // Updated minimum price for deals
+  } else {
     filterOptions.push('buyingOptions:{AUCTION}');
-    browseApiUrl.searchParams.append('sort', '-itemEndDate'); 
+    browseApiUrl.searchParams.append('sort', '-itemEndDate');
   }
   browseApiUrl.searchParams.append('filter', filterOptions.join(','));
 
@@ -258,7 +256,7 @@ export const fetchItems = async (
     const response = await fetch(browseApiUrl.toString(), {
       headers: {
         'Authorization': `Bearer ${authToken}`,
-        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB', 
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB',
         'Accept': 'application/json',
       },
       cache: 'no-store',
@@ -293,7 +291,7 @@ export const fetchItems = async (
     console.error(`Error in fetchItems for query "${keywordsForApi}", type "${type}":`, error);
     if (error instanceof Error) {
         if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API") || error.message.includes("Failed to fetch from eBay Browse API") || error.message.includes('Critical eBay API Authentication Failure')) {
-             throw error; 
+             throw error;
         }
         throw new Error(`Failed to fetch eBay items: ${error.message}.`);
     }
@@ -304,7 +302,7 @@ export const fetchItems = async (
 export async function getRandomPopularSearchTerm(): Promise<string> {
   if (curatedHomepageSearchTerms.length === 0) {
     console.warn("[BayBot getRandomPopularSearchTerm] Curated homepage search terms list is empty. Defaulting to 'tech deals'.");
-    return "tech deals"; 
+    return "tech deals";
   }
   const randomIndex = Math.floor(Math.random() * curatedHomepageSearchTerms.length);
   return curatedHomepageSearchTerms[randomIndex];
@@ -317,14 +315,13 @@ export async function getBatchedCuratedKeywordsQuery(): Promise<string> {
   }
 
   const shuffled = [...curatedHomepageSearchTerms].sort(() => 0.5 - Math.random());
-  // Ensure CURATED_BATCH_SIZE is not larger than the available terms
   const batchSize = Math.min(CURATED_BATCH_SIZE, shuffled.length);
   const selectedTerms = shuffled.slice(0, batchSize);
-  
-  if (selectedTerms.length === 0) { 
-    return "featured deals"; // Should only happen if curatedHomepageSearchTerms was empty initially
+
+  if (selectedTerms.length === 0) {
+    return "featured deals";
   }
-  
+
   return selectedTerms.map(term => `(${term})`).join(' OR ');
 }
 
