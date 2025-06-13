@@ -10,6 +10,7 @@ export interface BayBotItem {
   discountPercentage?: number; // Calculated or provided for deals
   sellerReputation: number; // Score from 0-100 (feedbackPercentage)
   condition?: string; // Item condition string
+  conditionId?: string; // Item condition ID
   itemLink?: string; // URL to view the item on eBay
   // Auction specific
   endTime?: string; // ISO date string, for auctions
