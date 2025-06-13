@@ -112,26 +112,26 @@ body {
 
 .baybot-tabs-trigger {
   @apply transition-all duration-300 ease-in-out bg-transparent text-muted-foreground;
-  /* Default state for non-active tabs. Non-active tabs will no longer change background/text color on hover. */
+  /* Non-active tabs: default transparent background, muted foreground. Hover effect for these is now only interactive-glow from component class. */
 }
 
-/* The :hover:not([data-state=active]) rule is removed to eliminate the specific background/text hover effect on non-active tabs. */
-
-/* Active tab style: uses 'accent' colors. This was previously the hover style for non-active tabs ("Image two"). */
+/* Active tab style: Restored to original prominent style */
 .baybot-tabs-trigger[data-state=active] {
-  @apply bg-accent text-accent-foreground;
-  /* The prominent box-shadow previously on the active state is removed to match the flatter "Image two" style. */
+  @apply bg-primary text-primary-foreground shadow-md;
 }
 
-/* Hovering an active tab should maintain its active appearance (using 'accent' colors). */
+/* Active tab hover: Restored */
 .baybot-tabs-trigger[data-state=active]:hover {
-  @apply bg-accent text-accent-foreground;
+  @apply bg-primary/90 text-primary-foreground shadow-lg;
 }
 
-/* Dark theme specific overrides for the old prominent active tab style are no longer needed,
-   as 'bg-accent' and 'text-accent-foreground' are already theme-aware and define the desired
-   "Image two" look for the active tab in both light and dark modes.
-*/
+/* Dark theme specific override for active tab: Restored */
+.dark .baybot-tabs-trigger[data-state=active] {
+  @apply bg-card text-foreground shadow-lg shadow-primary/20;
+}
+.dark .baybot-tabs-trigger[data-state=active]:hover {
+  @apply bg-card/80 text-foreground shadow-xl shadow-primary/30;
+}
 
 
 @keyframes pulse-glass {
@@ -176,3 +176,4 @@ body {
   text-shadow: 0px 1px 2px rgba(0,0,0,0.6);
 }
 
+    
