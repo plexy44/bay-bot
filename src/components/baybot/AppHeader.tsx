@@ -2,9 +2,8 @@
 'use client';
 
 import type React from 'react';
-import { SearchForm } from './atomic/SearchForm'; // New Import
-import { ViewTabs } from './atomic/ViewTabs'; // New Import
-import { getRandomPopularSearchTerm } from '@/services/ebay-api-service'; // Re-added for logo click
+import { SearchForm } from './atomic/SearchForm';
+import { ViewTabs } from './atomic/ViewTabs';
 
 interface AppHeaderProps {
   currentView: 'deals' | 'auctions';
@@ -21,42 +20,39 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
     onSearch(searchQuery);
   };
 
-  const handleLogoClick = async () => {
+  const handleLogoClick = () => {
     if (currentView !== 'deals') {
-      onViewChange('deals'); // This will also clear search query
-    } else {
-      // If already on deals, clear search query to trigger global curated
+      onViewChange('deals'); 
+    } else if (searchQuery !== '') {
       setSearchQuery(''); 
-      onSearch('');
+      // onSearch(''); // Implicitly handled by useEffect in page.tsx watching searchQuery
     }
   };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/60 backdrop-blur-lg supports-[backdrop-filter]:bg-background/40">
-      <div className="container flex h-16 max-w-screen-2xl items-center">
-        <div className="ml-4 mr-4 flex items-center md:ml-8">
+      <div className="container mx-auto flex h-16 items-center justify-between px-4">
+        {/* Left Group: Logo and Tabs */}
+        <div className="flex items-center gap-x-3 sm:gap-x-4">
           <button
             onClick={handleLogoClick}
             className="text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-            aria-label="BayBot - View Curated Homepage"
+            aria-label="BayBot - View Curated Homepage Deals"
           >
             BayBot
           </button>
+          <ViewTabs currentView={currentView} onViewChange={onViewChange} />
         </div>
 
-        <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-          <div className="w-full flex-1 md:w-auto md:flex-none">
-            <SearchForm
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-              onSubmit={handleSearchSubmit}
-            />
-          </div>
-           {/* ViewTabs will handle its own responsive rendering */}
+        {/* Right Group: Search Form */}
+        <div className="flex items-center">
+          <SearchForm
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            onSubmit={handleSearchSubmit}
+          />
         </div>
       </div>
-      {/* Moved ViewTabs outside the main flex container to span full width on mobile */}
-      <ViewTabs currentView={currentView} onViewChange={onViewChange} />
     </header>
   );
 };
