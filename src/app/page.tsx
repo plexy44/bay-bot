@@ -103,7 +103,10 @@ export default function HomePage() {
     } catch (e: any) {
       console.error("Failed to load items:", e);
       const errorMessage = e.message || `Failed to load ${view}. Please try again.`;
-      if (errorMessage.includes("OAuth") || errorMessage.includes("authenticate with eBay API") || errorMessage.includes("invalid_client")) {
+      if (errorMessage.includes("invalid_client")) {
+        setError("Critical eBay API Authentication Failure: The error 'invalid_client' indicates your EBAY_APP_ID or EBAY_CERT_ID in the .env file is incorrect or lacks production API access. Please verify these credentials and restart your application. Consult server logs for the exact eBay response.");
+        setIsAuthError(true);
+      } else if (errorMessage.includes("OAuth") || errorMessage.includes("authenticate with eBay API")) {
         setError("eBay API Authentication Failed. Please check your API credentials in the .env file and ensure they have production access. See server logs for more details.");
         setIsAuthError(true);
       } else {
@@ -117,7 +120,12 @@ export default function HomePage() {
   }, [toast, mapToAIDeal]);
   
   useEffect(() => {
-    loadItems(currentView, searchQuery);
+    // Initial load or when view/searchQuery changes
+    if (currentView === 'deals' && searchQuery === '') {
+      loadItems('deals', ''); // Load curated homepage deals
+    } else {
+      loadItems(currentView, searchQuery);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, searchQuery]);
 
@@ -128,6 +136,9 @@ export default function HomePage() {
   
   const handleViewChange = (view: 'deals' | 'auctions') => {
     setCurrentView(view);
+    // If switching to deals and search query is empty, curated list will be loaded by useEffect
+    // If switching to auctions and search query is empty, it will search general auctions
+    // If query exists, it will be used for the new view
   };
 
   const handleLoadMore = () => {
