@@ -176,11 +176,11 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
     } else if (hasAuction && !hasFixedPrice) {
         determinedItemType = 'auction';
     } else if (hasAuction && hasFixedPrice) {
-        determinedItemType = itemTypeFromFilter;
+        determinedItemType = itemTypeFromFilter; // Respect the filter if item has both options
     }
 
 
-    const description = browseItem.shortDescription || title;
+    const description = browseItem.shortDescription || title; // Fallback to title if no short description
     const itemLink = browseItem.itemAffiliateWebUrl || browseItem.itemWebUrl;
 
 
@@ -230,13 +230,13 @@ export const fetchItems = async (
       console.log(`[Cache EXPIRED] Deleted cache for key: ${cacheKey}`);
     }
   }
-  console.log(`[Cache MISS] Fetching items from Browse API for key: ${cacheKey}. Query: "${query}", Type: ${type}, Curated: ${isCuratedHomepage}`);
+  console.log(`[BayBot Fetch Cache MISS] Fetching items for key: ${cacheKey}. Type: "${type}", Query: "${query}", Curated: ${isCuratedHomepage}`);
 
   const authToken = await getEbayAuthToken();
-
   const keywordsForApi = query;
+
   if (!keywordsForApi) {
-      console.warn(`[BayBot Fetch] query was empty. This should be handled by the caller with a default.`);
+      console.warn(`[BayBot Fetch] Query was empty for type "${type}". Returning empty array.`);
       return [];
   }
 
@@ -245,21 +245,39 @@ export const fetchItems = async (
   browseApiUrl.searchParams.append('limit', '100');
 
   let filterOptions = ['itemLocationCountry:GB'];
+  let sortOption = ''; 
+
+  console.log(`[BayBot Fetch Logic] Preparing API call. Type: "${type}", Query: "${keywordsForApi}", Curated: ${isCuratedHomepage}`);
+
   if (type === 'deal') {
+    console.log(`[BayBot Fetch Logic] Applying 'deal' specific filters and sort.`);
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
-    filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}');
     if (isCuratedHomepage) {
-      filterOptions.push('price:[20..]');
+      filterOptions.push('price:[20..]'); 
     } else {
-      filterOptions.push('price:[100..]');
+      filterOptions.push('price:[100..]'); 
     }
-    browseApiUrl.searchParams.append('sort', 'bestMatch'); // Explicitly sort deals by bestMatch
-  } else { // 'auction'
+    filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}');
+    sortOption = 'bestMatch';
+  } else if (type === 'auction') {
+    console.log(`[BayBot Fetch Logic] Applying 'auction' specific filters and sort.`);
     filterOptions.push('buyingOptions:{AUCTION}');
-    browseApiUrl.searchParams.append('sort', 'itemEndDate'); // Sort auctions by ending soonest
+    sortOption = 'itemEndDate'; 
+  } else {
+    console.warn(`[BayBot Fetch Logic] Unexpected type: "${type}". Defaulting to 'deal' logic.`);
+    filterOptions.push('buyingOptions:{FIXED_PRICE}');
+    filterOptions.push('price:[20..]'); 
+    filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}');
+    sortOption = 'bestMatch';
   }
+  
+  if (sortOption) {
+    browseApiUrl.searchParams.append('sort', sortOption);
+  }
+  
   browseApiUrl.searchParams.append('filter', filterOptions.join(','));
-  console.log(`[BayBot Fetch] eBay API URL: ${browseApiUrl.toString()}`);
+
+  console.log(`[BayBot Fetch] Constructed eBay API URL: ${browseApiUrl.toString()}`);
 
 
   try {
@@ -279,11 +297,15 @@ export const fetchItems = async (
     }
 
     const data = await response.json();
-    console.log(`[BayBot Fetch] eBay API response for query "${keywordsForApi}": ${data.total ?? 0} items found initially.`);
+    // console.log(`[BayBot Fetch] eBay API response for query "${keywordsForApi}": ${data.total ?? 0} items found initially.`);
 
 
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
-      console.warn('No items found or unexpected API response structure from eBay Browse API for query:', keywordsForApi, 'type:', type, 'URL:', browseApiUrl.toString(), 'Data:', JSON.stringify(data, null, 2));
+      const warningMessage = `[BayBot Fetch eBay Response] No items found or unexpected API response structure from eBay for query: "${keywordsForApi}", type: "${type}". URL: ${browseApiUrl.toString()}. eBay Data: ${JSON.stringify(data, null, 2)}`;
+      console.warn(warningMessage);
+       if (data.warnings && data.warnings.length > 0) {
+        console.warn(`[BayBot Fetch eBay Response] eBay API Warnings:`, JSON.stringify(data.warnings, null, 2));
+      }
       fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
     }
@@ -329,15 +351,14 @@ export async function getBatchedCuratedKeywordsQuery(): Promise<string> {
   }
 
   const shuffled = [...curatedHomepageSearchTerms].sort(() => 0.5 - Math.random());
+  // Ensure batchSize is at least 1 and not more than the number of available terms or CURATED_BATCH_SIZE
   const batchSize = Math.max(1, Math.min(CURATED_BATCH_SIZE, shuffled.length)); 
   const selectedTerms = shuffled.slice(0, batchSize);
 
   if (selectedTerms.length === 0) {
+    console.warn("[BayBot getBatchedCuratedKeywordsQuery] No terms selected after shuffling. Defaulting to 'featured deals'.");
     return "featured deals"; 
   }
   // Format: (keyword1) OR (keyword2) OR (keyword3)
   return selectedTerms.map(term => `(${encodeURIComponent(term)})`).join(' OR ');
 }
-
-
-    
