@@ -31,15 +31,15 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
           />
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
             <Badge
-              className="absolute top-3 right-3 shadow-lg backdrop-blur-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 flex items-center gap-1 rainbow-border-animate"
+              className="absolute top-3 right-3 shadow-lg backdrop-blur-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 flex items-center gap-1 bg-slate-900 border-2 border-green-500 rounded-full px-3 py-1 text-white"
               onClick={() => onAnalyze(item)}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAnalyze(item); }}
               aria-label={`Analyze deal with ${item.discountPercentage}% off`}
             >
-              <Info className="h-3.5 w-3.5 text-white text-shadow-strong" />
-              <span className="text-white text-shadow-strong">{item.discountPercentage}% OFF</span>
+              <Info className="h-3.5 w-3.5 text-white" />
+              <span className="text-sm text-white">{item.discountPercentage}% OFF</span>
             </Badge>
           )}
         </div>
