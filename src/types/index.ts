@@ -1,9 +1,9 @@
 
 export interface BayBotItem {
   id: string;
-  type: 'deal' | 'auction';
+  type: 'deal' | 'auction'; // Explicitly 'deal' or 'auction'
   title: string;
-  description: string; // Can be shortDescription from Browse API
+  description: string; // Primarily from shortDescription from Browse API, or fallback
   imageUrl: string;
   price: number; // current price for deal, current bid for auction
   originalPrice?: number; // RRP or original price for deals

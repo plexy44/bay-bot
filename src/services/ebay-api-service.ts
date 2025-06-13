@@ -49,6 +49,9 @@ async function getEbayAuthToken(): Promise<string> {
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`eBay OAuth request failed with status ${response.status}: ${errorBody}`);
+      if (errorBody.includes("invalid_client")) {
+        throw new Error(`Critical eBay API Authentication Failure: The error 'invalid_client' indicates your EBAY_APP_ID or EBAY_CERT_ID in the .env file is incorrect or lacks production API access. Please verify these credentials and restart your application. Consult server logs for the exact eBay response. Original eBay error: ${errorBody}`);
+      }
       throw new Error(`eBay OAuth request failed with status ${response.status}. eBay's response: ${errorBody}`);
     }
 
@@ -62,7 +65,7 @@ async function getEbayAuthToken(): Promise<string> {
   } catch (error) {
     console.error('Detailed error during eBay OAuth token fetch:', error);
     if (error instanceof Error) {
-        if (error.message.includes('eBay OAuth request failed') || error.message.includes('invalid_client')) {
+        if (error.message.includes('eBay OAuth request failed') || error.message.includes('invalid_client') || error.message.includes('Critical eBay API Authentication Failure')) {
             throw error;
         }
         throw new Error(`Failed to authenticate with eBay API: ${error.message}. Please check server logs for more details and ensure eBay API credentials in .env are correct and have production access.`);
@@ -121,12 +124,25 @@ interface BrowseApiItemSummary {
   condition?: string;
 }
 
+function getHighResolutionImageUrl(originalUrl?: string): string {
+  const defaultPlaceholder = 'https://placehold.co/600x400.png';
+  if (!originalUrl) return defaultPlaceholder;
+
+  // Try to replace size specifier like s-l225, s-l500 with s-l1600 for higher resolution
+  // This works for many eBay image URLs.
+  const ebayImagePattern = /(.*\/s-l)\d+(\.(?:jpg|jpeg|png))/i;
+  if (originalUrl.includes('ebayimg.com') && ebayImagePattern.test(originalUrl)) {
+    return originalUrl.replace(ebayImagePattern, '$11600$2');
+  }
+  return originalUrl; // Return original if not an eBay pattern or no specifier found
+}
+
 
 function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilter: 'deal' | 'auction'): BayBotItem | null {
   try {
     const id = browseItem.itemId;
     const title = browseItem.title;
-    const imageUrl = browseItem.image?.imageUrl || 'https://placehold.co/600x400.png';
+    const imageUrl = getHighResolutionImageUrl(browseItem.image?.imageUrl);
     const currentPriceValue = parseFloat(browseItem.price.value);
 
     let originalPriceValue: number | undefined = undefined;
@@ -152,11 +168,13 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
       : 70; 
 
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
-    if (browseItem.buyingOptions?.includes('FIXED_PRICE')) {
+    if (browseItem.buyingOptions?.includes('FIXED_PRICE') && !browseItem.buyingOptions?.includes('AUCTION')) {
         determinedItemType = 'deal';
     } else if (browseItem.buyingOptions?.includes('AUCTION')) {
         determinedItemType = 'auction';
     }
+    // If it has both, and typeFromFilter was 'deal', keep 'deal'. If 'auction', keep 'auction'.
+    // This handles items that might be listed as both (rare for item_summary).
 
     const description = browseItem.shortDescription ||
                         (browseItem.itemWebUrl ? `View this item on eBay: ${browseItem.itemWebUrl}` :
@@ -216,6 +234,7 @@ export const fetchItems = async (
     console.log(`[BayBot Curated Homepage] Using random search term: "${keywords}" for initial deals load.`);
   } else if (type === 'auction' && !keywords) {
     keywords = "collectible auction"; 
+    console.log(`[BayBot Auctions] No query, using default: "${keywords}"`);
   }
 
   if (!keywords) {
@@ -231,6 +250,9 @@ export const fetchItems = async (
   let filterOptions = ['itemLocationCountry:GB'];
   if (type === 'deal') {
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
+    // Optionally, to try and get deals, we can add aspect_filter for deal programs if available
+    // filterOptions.push('aspect_filter:{UPC,<ASIN_FOR_PRODUCT>,DealProgram:<PROGRAM_NAME>}');
+    // However, 'buyingOptions:{FIXED_PRICE}' is the most direct way to get non-auction items.
   } else { 
     filterOptions.push('buyingOptions:{AUCTION}');
     browseApiUrl.searchParams.append('sort', '-itemEndDate'); 
@@ -251,7 +273,7 @@ export const fetchItems = async (
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`eBay Browse API request failed: ${response.status} for query "${keywords}", type "${type}". Body: ${errorBody}`);
-      throw new Error(`eBay Browse API request failed: ${response.status}. Check server logs. eBay response: ${errorBody}`);
+      throw new Error(`Failed to fetch from eBay Browse API (status ${response.status}). Check server logs for more details. eBay's response: ${errorBody.substring(0, 500)}`);
     }
 
     const data = await response.json();
@@ -269,14 +291,14 @@ export const fetchItems = async (
       .filter((item): item is BayBotItem => item !== null);
 
     fetchItemsCache.set(cacheKey, { data: transformedItems, timestamp: Date.now() });
-    console.log(`[Cache SET] Cached items for key: ${cacheKey}`);
+    console.log(`[Cache SET] Cached ${transformedItems.length} items for key: ${cacheKey}`);
 
     return transformedItems;
 
   } catch (error) {
     console.error(`Error in fetchItems for query "${keywords}", type "${type}":`, error);
     if (error instanceof Error) {
-        if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API")) {
+        if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API") || error.message.includes("Failed to fetch from eBay Browse API") || error.message.includes('Critical eBay API Authentication Failure')) {
              throw error; 
         }
         throw new Error(`Failed to fetch eBay items: ${error.message}.`);
@@ -286,6 +308,10 @@ export const fetchItems = async (
 };
 
 export async function getRandomPopularSearchTerm(): Promise<string> {
-  if (curatedHomepageSearchTerms.length === 0) return "tech deals"; 
-  return curatedHomepageSearchTerms[Math.floor(Math.random() * curatedHomepageSearchTerms.length)];
+  if (curatedHomepageSearchTerms.length === 0) {
+    console.warn("[BayBot getRandomPopularSearchTerm] Curated homepage search terms list is empty. Defaulting to 'tech deals'.");
+    return "tech deals"; 
+  }
+  const randomIndex = Math.floor(Math.random() * curatedHomepageSearchTerms.length);
+  return curatedHomepageSearchTerms[randomIndex];
 }
