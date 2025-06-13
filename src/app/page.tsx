@@ -13,20 +13,21 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
-import { fetchItems } from '@/services/ebay-api-service';
+import { fetchItems, getRandomPopularSearchTerm } from '@/services/ebay-api-service';
 import { rankDeals as rankDealsAI } from '@/ai/flows/rank-deals';
+import { qualifyAuctions as qualifyAuctionsAI } from '@/ai/flows/qualify-auctions';
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
-  GLOBAL_CURATED_DEALS_REQUEST_MARKER,
-  MIN_DESIRED_CURATED_DEALS,
+  MIN_DESIRED_CURATED_ITEMS,
   MAX_CURATED_FETCH_ATTEMPTS,
-  MIN_AI_QUALIFIED_ITEMS_THRESHOLD
+  MIN_AI_QUALIFIED_ITEMS_THRESHOLD,
+  CURATED_DEALS_CACHE_KEY,
+  CURATED_AUCTIONS_CACHE_KEY
 } from '@/lib/constants';
 
 
 const ITEMS_PER_PAGE = 8;
-const CURATED_DEALS_CACHE_KEY = 'cachedCuratedDeals';
 
 const AnalysisModal = dynamic(() =>
   import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
@@ -54,10 +55,8 @@ function HomePageContent() {
 
   const loadItems = useCallback(async (queryToLoad: string) => {
     console.log(`[HomePage loadItems] Initiating. Query to load: "${queryToLoad}"`);
-    
     const isGlobalCuratedRequest = queryToLoad === '';
 
-    // Initial state setup
     setAllItems([]);
     setDisplayedItems([]);
     setVisibleItemCount(ITEMS_PER_PAGE);
@@ -65,6 +64,9 @@ function HomePageContent() {
     setIsRanking(false);
     setError(null);
     setIsAuthError(false);
+
+    let finalProcessedItems: BayBotItem[] = [];
+    let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
     if (isGlobalCuratedRequest) {
       try {
@@ -75,31 +77,97 @@ function HomePageContent() {
             console.log(`[HomePage loadItems] Found ${cachedData.items.length} curated deals in sessionStorage. Displaying them.`);
             setAllItems(cachedData.items);
             setDisplayedItems(cachedData.items.slice(0, ITEMS_PER_PAGE));
-            setVisibleItemCount(ITEMS_PER_PAGE);
             setIsLoading(false);
             toast({ title: "Loaded Cached Curated Deals", description: "Displaying previously fetched deals for this session." });
-            return; // Exit if cached data is successfully loaded
+            return;
           }
         }
       } catch (e) {
         console.warn("[HomePage loadItems] Error reading or parsing curated deals from sessionStorage:", e);
-        sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY); // Clear potentially corrupted cache
+        sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
       }
-    }
-    
-    // Proceed with fetching if not a global curated request or if cache was not hit/valid
 
-    let finalProcessedItems: BayBotItem[] = [];
-    const processedItemIds = new Set<string>();
-    let fetchAttempts = 0;
-    let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
-    
-    if (!isGlobalCuratedRequest) {
-      // Standard user search logic
+      console.log(`[HomePage loadItems] Curated deals: No valid cache. Fetching fresh. Target: ${MIN_DESIRED_CURATED_ITEMS} items.`);
+      setIsRanking(true); // Show AI spinner during the consolidated fetch + AI process
+
+      try {
+        const uniqueRandomKeywords = Array.from(new Set(Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm())));
+        console.log(`[HomePage loadItems] Curated deals: Using ${uniqueRandomKeywords.length} keywords: ${uniqueRandomKeywords.join(', ')}`);
+
+        const fetchedBatches = await Promise.all(
+          uniqueRandomKeywords.map(kw => fetchItems('deal', kw, true))
+        );
+        
+        const consolidatedItems = fetchedBatches.flat();
+        const uniqueConsolidatedItemsMap = new Map<string, BayBotItem>();
+        consolidatedItems.forEach(item => {
+          if (!uniqueConsolidatedItemsMap.has(item.id)) {
+            uniqueConsolidatedItemsMap.set(item.id, item);
+          }
+        });
+        const uniqueConsolidatedItems = Array.from(uniqueConsolidatedItemsMap.values());
+        console.log(`[HomePage loadItems] Curated deals: Fetched ${uniqueConsolidatedItems.length} unique items from eBay across keywords.`);
+
+        if (uniqueConsolidatedItems.length > 0) {
+          const aiQualifiedAndRankedItems: BayBotItem[] = await rankDealsAI(uniqueConsolidatedItems, "general curated deals");
+          const aiCount = aiQualifiedAndRankedItems.length;
+          console.log(`[HomePage loadItems] Curated deals: AI qualified ${aiCount} items.`);
+
+          finalProcessedItems = [...aiQualifiedAndRankedItems];
+
+          if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < uniqueConsolidatedItems.length) {
+            const aiQualifiedIds = new Set(aiQualifiedAndRankedItems.map(d => d.id));
+            const fallbackItems = uniqueConsolidatedItems.filter(d => !aiQualifiedIds.has(d.id));
+            finalProcessedItems.push(...fallbackItems);
+            overallToastMessage = { title: "Curated Deals: AI Enhanced", description: `Displaying ${aiCount} AI-qualified deals, plus ${fallbackItems.length} more.` };
+          } else if (aiCount === 0 && uniqueConsolidatedItems.length > 0) {
+            finalProcessedItems = uniqueConsolidatedItems;
+            overallToastMessage = { title: "Curated Deals: Server Processed", description: `Displaying ${uniqueConsolidatedItems.length} server-processed deals. AI found no specific qualifications.` };
+          } else if (aiCount > 0) {
+            overallToastMessage = { title: "Curated Deals: AI Qualified", description: `Displaying ${aiCount} AI-qualified deals.` };
+          } else {
+             overallToastMessage = { title: "No Curated Deals", description: "Could not find any curated deals matching criteria." };
+          }
+        } else {
+          overallToastMessage = { title: "No Curated Deals", description: "No deals found from initial fetch." };
+        }
+        
+        if (finalProcessedItems.length < MIN_DESIRED_CURATED_ITEMS && finalProcessedItems.length > 0) {
+             console.warn(`[HomePage loadItems] Curated deal fetch resulted in ${finalProcessedItems.length} items, less than target ${MIN_DESIRED_CURATED_ITEMS}. Toast already set by primary/fallback logic.`);
+        } else if (finalProcessedItems.length === 0 && !overallToastMessage) {
+             overallToastMessage = { title: "No Curated Deals", description: "No deals found after processing." };
+        }
+
+      } catch (e: any) {
+        console.error(`[HomePage loadItems] Error fetching curated deals:`, e);
+        let displayMessage = "Failed to load curated deals.";
+        if (typeof e.message === 'string') {
+          if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
+            displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs."; setIsAuthError(true);
+          } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
+            displayMessage = "eBay API Authentication Failed. Check credentials and server logs."; setIsAuthError(true);
+          } else { displayMessage = e.message; }
+        }
+        setError(displayMessage);
+        finalProcessedItems = [];
+      } finally {
+        setIsRanking(false);
+      }
+
+      if (!error && finalProcessedItems.length > 0) {
+        try {
+          sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: finalProcessedItems, timestamp: Date.now() }));
+          console.log(`[HomePage loadItems] Saved ${finalProcessedItems.length} curated deals to sessionStorage.`);
+        } catch (e) {
+          console.warn("[HomePage loadItems] Error saving curated deals to sessionStorage:", e);
+        }
+      }
+
+    } else { // Standard user search logic
       const effectiveQueryForEbay = queryToLoad;
       console.log(`[HomePage loadItems] Standard search. eBay Query: "${effectiveQueryForEbay}", Type: "deal"`);
       try {
-        const fetchedItems: BayBotItem[] = await fetchItems('deal', effectiveQueryForEbay);
+        const fetchedItems: BayBotItem[] = await fetchItems('deal', effectiveQueryForEbay, false);
         console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items from server-side for query "${effectiveQueryForEbay}".`);
 
         if (fetchedItems.length > 0) {
@@ -119,10 +187,12 @@ function HomePageContent() {
             overallToastMessage = { title: "Deals: AI Enhanced", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}", plus ${fallbackItems.length} more.` };
           } else if (aiCount > 0) {
             overallToastMessage = { title: "Deals: AI Qualified", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}".` };
-          } else { 
+          } else if (fetchedItems.length > 0) { 
             finalProcessedItems = fetchedItems; 
             overallToastMessage = { title: "Deals: Server Processed", description: `Displaying server-processed deals for "${queryToLoad}". AI found no further qualifications.` };
             console.warn(`[HomePage loadItems] AI qualification returned no items for query "${aiQueryContext}". Using server-processed list (${fetchedItems.length} items) as fallback.`);
+          } else {
+             overallToastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" after processing.` };
           }
         } else {
           overallToastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" after server processing.` };
@@ -146,121 +216,22 @@ function HomePageContent() {
         }
         setError(displayMessage);
         finalProcessedItems = [];
-      }
-    } else {
-      // Iterative curated deals fetching logic
-      console.log(`[HomePage loadItems] Starting curated deals fetch loop. Target: ${MIN_DESIRED_CURATED_DEALS} items. Max attempts: ${MAX_CURATED_FETCH_ATTEMPTS}.`);
-      
-      while (finalProcessedItems.length < MIN_DESIRED_CURATED_DEALS && fetchAttempts < MAX_CURATED_FETCH_ATTEMPTS) {
-        fetchAttempts++;
-        console.log(`[HomePage loadItems] Curated fetch attempt ${fetchAttempts}/${MAX_CURATED_FETCH_ATTEMPTS}. Current items: ${finalProcessedItems.length}`);
-        
-        if (fetchAttempts > 1 || finalProcessedItems.length > 0) {
-             setIsRanking(true);
-        }
-
-        try {
-          const fetchedItemsFromAttempt: BayBotItem[] = await fetchItems('deal', GLOBAL_CURATED_DEALS_REQUEST_MARKER);
-          const newUniqueFetchedItems = fetchedItemsFromAttempt.filter(item => !processedItemIds.has(item.id));
-
-          if (newUniqueFetchedItems.length === 0) {
-            console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: No new unique items fetched. Skipping AI for this batch.`);
-            setIsRanking(false);
-            if (fetchAttempts === MAX_CURATED_FETCH_ATTEMPTS && finalProcessedItems.length === 0) {
-              overallToastMessage = { title: "No Curated Deals", description: "Could not find enough curated deals after several attempts." };
-            }
-            continue;
-          }
-          
-          console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: Fetched ${fetchedItemsFromAttempt.length} items (${newUniqueFetchedItems.length} new). Sending to AI.`);
-          setIsRanking(true);
-
-          const aiQueryContext = "general curated deals";
-          const aiQualifiedForBatch: BayBotItem[] = await rankDealsAI(newUniqueFetchedItems, aiQueryContext);
-          const aiCountForBatch = aiQualifiedForBatch.length;
-          
-          let itemsToAddFromBatch: BayBotItem[] = [];
-
-          if (aiCountForBatch > 0) {
-            itemsToAddFromBatch = [...aiQualifiedForBatch];
-            if (aiCountForBatch < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCountForBatch < newUniqueFetchedItems.length) {
-              const aiBatchIds = new Set(aiQualifiedForBatch.map(d => d.id));
-              const fallbackBatchItems = newUniqueFetchedItems.filter(d => !aiBatchIds.has(d.id));
-              itemsToAddFromBatch.push(...fallbackBatchItems);
-              console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: AI qualified ${aiCountForBatch}, added ${fallbackBatchItems.length} fallbacks from this batch of new items.`);
-            } else {
-              console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: AI qualified ${aiCountForBatch} items from this batch of new items.`);
-            }
-          } else {
-            itemsToAddFromBatch = newUniqueFetchedItems;
-            console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: AI returned 0 items. Using all ${newUniqueFetchedItems.length} new unique server-processed items from this batch.`);
-          }
-
-          itemsToAddFromBatch.forEach(item => {
-            if (!processedItemIds.has(item.id)) {
-              finalProcessedItems.push(item);
-              processedItemIds.add(item.id);
-            }
-          });
-          
-          setAllItems([...finalProcessedItems]);
-          setDisplayedItems(finalProcessedItems.slice(0, visibleItemCount > 0 ? visibleItemCount : ITEMS_PER_PAGE ));
-
-
-        } catch (e: any) {
-          console.error(`[HomePage loadItems] Error during curated fetch attempt ${fetchAttempts}:`, e);
-          if (typeof e.message === 'string' && (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure") || e.message.includes("OAuth"))) {
-            let displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs.";
-            setError(displayMessage);
-            setIsAuthError(true);
-            finalProcessedItems = []; 
-            break; 
-          }
-          if (fetchAttempts === MAX_CURATED_FETCH_ATTEMPTS) {
-            setError("Failed to load sufficient curated deals after multiple attempts.");
-          }
-        } finally {
-          setIsRanking(false); 
-        }
-      } 
-
-      if (finalProcessedItems.length > 0 && !error) {
-        overallToastMessage = {
-          title: "Curated Deals Loaded",
-          description: `Displaying ${finalProcessedItems.length} curated deals. ${fetchAttempts} fetch attempt(s) made.`
-        };
-      } else if (finalProcessedItems.length === 0 && !error && fetchAttempts >= MAX_CURATED_FETCH_ATTEMPTS) {
-         overallToastMessage = {
-          title: "No Curated Deals",
-          description: `Could not find curated deals after ${fetchAttempts} attempt(s). Try a specific search.`
-        };
+      } finally {
+        setIsRanking(false);
       }
     }
 
     setAllItems(finalProcessedItems);
     setDisplayedItems(finalProcessedItems.slice(0, ITEMS_PER_PAGE));
-    setVisibleItemCount(ITEMS_PER_PAGE); // Ensure this is reset correctly
     setIsLoading(false);
-    setIsRanking(false);
-    console.log(`[HomePage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} total items. Fetch attempts (if curated): ${fetchAttempts}`);
 
     if (overallToastMessage && !error) {
       toast(overallToastMessage);
     } else if (error && !isAuthError) {
       toast({ title: "Error Loading Deals", description: error || "An unexpected error occurred.", variant: "destructive" });
     }
-
-    // Save to sessionStorage if it was a successful global curated request
-    if (isGlobalCuratedRequest && !error) {
-      try {
-        sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: finalProcessedItems, timestamp: Date.now() }));
-        console.log(`[HomePage loadItems] Saved ${finalProcessedItems.length} curated deals to sessionStorage.`);
-      } catch (e) {
-        console.warn("[HomePage loadItems] Error saving curated deals to sessionStorage:", e);
-      }
-    }
-
-  }, [toast]); // Removed router from dependencies as it's stable, setInputValue and other state setters are also stable.
+    console.log(`[HomePage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} total items.`);
+  }, [toast]);
 
   useEffect(() => {
     console.log(`[HomePage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
@@ -273,6 +244,60 @@ function HomePageContent() {
     const newPath = query ? `/?q=${encodeURIComponent(query)}` : '/';
     router.push(newPath);
   }, [router]);
+
+  const handleLogoClick = useCallback(async () => {
+    console.log('[HomePage handleLogoClick] Logo clicked. Clearing caches and preparing for background auction refresh.');
+    sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
+    sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
+    setInputValue('');
+
+    (async () => {
+      try {
+        console.log('[HomePage handleLogoClick] Starting background curated auctions fetch...');
+        const uniqueBackgroundKeywords = Array.from(new Set(Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm())));
+        
+        const backgroundFetchedBatches = await Promise.all(
+          uniqueBackgroundKeywords.map(kw => fetchItems('auction', kw, true))
+        );
+        const consolidatedBackgroundItems = backgroundFetchedBatches.flat();
+        const uniqueConsolidatedBackgroundMap = new Map<string, BayBotItem>();
+        consolidatedBackgroundItems.forEach(item => {
+          if (!uniqueConsolidatedBackgroundMap.has(item.id)) {
+            uniqueConsolidatedBackgroundMap.set(item.id, item);
+          }
+        });
+        const uniqueConsolidatedBackgroundAuctions = Array.from(uniqueConsolidatedBackgroundMap.values());
+
+        if (uniqueConsolidatedBackgroundAuctions.length > 0) {
+          const aiQualifiedAndRankedAuctions = await qualifyAuctionsAI(uniqueConsolidatedBackgroundAuctions, "general curated auctions (background logo click)");
+          
+          let finalBackgroundAuctions = [...aiQualifiedAndRankedAuctions];
+          if (aiQualifiedAndRankedAuctions.length < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiQualifiedAndRankedAuctions.length < uniqueConsolidatedBackgroundAuctions.length) {
+            const aiQualifiedIds = new Set(aiQualifiedAndRankedAuctions.map(d => d.id));
+            const fallbackItems = uniqueConsolidatedBackgroundAuctions.filter(d => !aiQualifiedIds.has(d.id));
+            finalBackgroundAuctions.push(...fallbackItems);
+          } else if (aiQualifiedAndRankedAuctions.length === 0 && uniqueConsolidatedBackgroundAuctions.length > 0) {
+            finalBackgroundAuctions = uniqueConsolidatedBackgroundAuctions;
+          }
+          
+          if (finalBackgroundAuctions.length > 0) {
+            sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
+            console.log(`[HomePage handleLogoClick] Background task: Saved ${finalBackgroundAuctions.length} curated auctions to sessionStorage.`);
+            toast({ title: "Curated Auctions Refreshed", description: "New set of curated auctions cached in background." });
+          } else {
+            console.log('[HomePage handleLogoClick] Background task: No curated auctions found/qualified to cache.');
+          }
+        } else {
+           console.log('[HomePage handleLogoClick] Background task: No initial items fetched for curated auctions.');
+        }
+      } catch (bgError) {
+        console.error('[HomePage handleLogoClick] Error in background auction caching:', bgError);
+        toast({ title: "Background Refresh Failed", description: "Could not refresh curated auctions in background.", variant: "destructive" });
+      }
+    })();
+
+    router.push('/'); 
+  }, [router, toast]);
 
 
   const handleLoadMore = () => {
@@ -287,17 +312,17 @@ function HomePageContent() {
   };
 
   const handleKeywordSearchFromModal = (keyword: string) => {
-    setIsAnalysisModalOpen(false); // Close modal
-    setInputValue(keyword); // Update main search input field
-    router.push(`/?q=${encodeURIComponent(keyword)}`); // Navigate to deals page (homepage) with new query
+    setIsAnalysisModalOpen(false); 
+    setInputValue(keyword); 
+    router.push(`/?q=${encodeURIComponent(keyword)}`); 
   };
 
 
   let noItemsTitle = "No Deals Found";
   let noItemsDescription = currentQueryFromUrl
     ? `Try adjusting your search for "${currentQueryFromUrl}".`
-    : "No global curated deals available for the sampled category right now. Check back later!";
-
+    : "No global curated deals available right now. Check back later or try a specific search!";
+  
   if (allItems.length === 0 && !isLoading && !isRanking && !error && currentQueryFromUrl === '') {
       noItemsDescription = `We tried fetching curated deals but couldn't find enough. Try a specific search!`;
   }
@@ -309,10 +334,7 @@ function HomePageContent() {
         searchInputValue={inputValue}
         onSearchInputChange={setInputValue}
         onSearchSubmit={handleSearchSubmit}
-        onLogoClick={() => {
-          setInputValue('');
-          router.push('/');
-        }}
+        onLogoClick={handleLogoClick}
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (

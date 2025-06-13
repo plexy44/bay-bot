@@ -18,7 +18,7 @@ import { qualifyAuctions as qualifyAuctionsAI } from '@/ai/flows/qualify-auction
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
-  CURATED_DEALS_CACHE_KEY, // For clearing on logo click
+  CURATED_DEALS_CACHE_KEY, 
   CURATED_AUCTIONS_CACHE_KEY,
   MIN_DESIRED_CURATED_ITEMS,
   MAX_CURATED_FETCH_ATTEMPTS,
@@ -86,7 +86,7 @@ function AuctionsPageContent() {
       }
 
       console.log(`[AuctionsPage loadItems] Curated auctions: No valid cache. Fetching fresh. Target: ${MIN_DESIRED_CURATED_ITEMS} items.`);
-      setIsQualifying(true); // Show AI spinner during the consolidated fetch + AI process
+      setIsQualifying(true); 
 
       try {
         const uniqueRandomKeywords = Array.from(new Set(Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm())));
@@ -161,7 +161,7 @@ function AuctionsPageContent() {
         }
       }
 
-    } else { // Standard user search logic for auctions
+    } else { 
       const effectiveQueryForEbay = queryToLoad;
       console.log(`[AuctionsPage loadItems] Standard auction search. eBay Query: "${effectiveQueryForEbay}"`);
       try {
@@ -237,9 +237,8 @@ function AuctionsPageContent() {
     console.log('[AuctionsPage handleLogoClick] Logo clicked. Clearing caches and preparing for background auction refresh.');
     sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
     sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
-    setInputValue(''); // Clear search input on the current page
+    setInputValue(''); 
 
-    // Background task to fetch and cache curated auctions
     (async () => {
       try {
         console.log('[AuctionsPage handleLogoClick] Starting background curated auctions fetch...');
@@ -284,7 +283,7 @@ function AuctionsPageContent() {
         toast({ title: "Background Refresh Failed", description: "Could not refresh curated auctions in background.", variant: "destructive" });
       }
     })();
-    router.push('/'); // Navigate to homepage
+    router.push('/'); 
   }, [router, toast]);
 
 
@@ -379,5 +378,3 @@ export default function AuctionsPage() {
     </Suspense>
   );
 }
-
-    
