@@ -17,10 +17,16 @@ import { fetchItems } from '@/services/ebay-api-service';
 import { rankDeals as rankDealsAI } from '@/ai/flows/rank-deals';
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { GLOBAL_CURATED_DEALS_REQUEST_MARKER } from '@/lib/constants';
+import {
+  GLOBAL_CURATED_DEALS_REQUEST_MARKER,
+  MIN_DESIRED_CURATED_DEALS,
+  MAX_CURATED_FETCH_ATTEMPTS,
+  MIN_AI_QUALIFIED_ITEMS_THRESHOLD
+} from '@/lib/constants';
+
 
 const ITEMS_PER_PAGE = 8;
-const MIN_AI_QUALIFIED_ITEMS_THRESHOLD = 6;
+
 
 const AnalysisModal = dynamic(() =>
   import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
@@ -56,120 +62,172 @@ function HomePageContent() {
     setIsAuthError(false);
 
     let finalProcessedItems: BayBotItem[] = [];
-    let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
-
+    const processedItemIds = new Set<string>();
+    let fetchAttempts = 0;
+    let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
     const isGlobalCuratedRequest = queryToLoad === '';
-    const fetchType = 'deal';
-    const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_DEALS_REQUEST_MARKER : queryToLoad;
-    console.log(`[HomePage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
-    try {
-      const fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
-      console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items from server-side processing for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
+    if (!isGlobalCuratedRequest) {
+      // Standard user search logic
+      const effectiveQueryForEbay = queryToLoad;
+      console.log(`[HomePage loadItems] Standard search. eBay Query: "${effectiveQueryForEbay}", Type: "deal"`);
+      try {
+        const fetchedItems: BayBotItem[] = await fetchItems('deal', effectiveQueryForEbay);
+        console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items from server-side for query "${effectiveQueryForEbay}".`);
 
-      if (fetchedItems.length > 0) {
-        setIsRanking(true);
-        const aiQueryContext = queryToLoad || "general deals";
-
-        try {
-          console.log(`[HomePage loadItems] Sending ${fetchedItems.length} pre-processed deals to AI for qualification/ranking. AI Query Context: "${aiQueryContext}"`);
+        if (fetchedItems.length > 0) {
+          setIsRanking(true);
+          const aiQueryContext = queryToLoad;
           const aiQualifiedAndRankedItems: BayBotItem[] = await rankDealsAI(fetchedItems, aiQueryContext);
           const aiCount = aiQualifiedAndRankedItems.length;
 
-          if (aiCount > 0) {
-            finalProcessedItems = [...aiQualifiedAndRankedItems];
-            console.log(`[HomePage loadItems] AI successfully qualified and ranked ${aiCount} deals. Query: "${aiQueryContext}".`);
+          finalProcessedItems = [...aiQualifiedAndRankedItems]; // Start with AI qualified
+          console.log(`[HomePage loadItems] AI qualified and ranked ${aiCount} deals for query "${aiQueryContext}".`);
 
-            if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < fetchedItems.length) {
-              const aiQualifiedIds = new Set(aiQualifiedAndRankedItems.map(d => d.id));
-              const fallbackItems = fetchedItems.filter(d => !aiQualifiedIds.has(d.id));
-              const fallbackCount = fallbackItems.length;
-
-              if (fallbackCount > 0) {
-                finalProcessedItems.push(...fallbackItems);
-                console.log(`[HomePage loadItems] AI returned ${aiCount} (<${MIN_AI_QUALIFIED_ITEMS_THRESHOLD}) deals. Appending ${fallbackCount} server-processed fallback deals.`);
-                toastMessage = {
-                  title: isGlobalCuratedRequest ? "Curated Deals: AI Enhanced" : "Deals: AI Enhanced",
-                  description: isGlobalCuratedRequest 
-                    ? `Displaying ${aiCount} AI-qualified deals, plus ${fallbackCount} more from a popular category.` 
-                    : `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}", plus ${fallbackCount} more.`
-                };
-              } else {
-                 toastMessage = { 
-                    title: isGlobalCuratedRequest ? "Curated Deals: AI Qualified" : "Deals: AI Qualified",
-                    description: isGlobalCuratedRequest 
-                      ? `Displaying ${aiCount} AI-qualified deals from a popular category.` 
-                      : `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}".`
-                  };
-              }
-            } else { 
-              toastMessage = { 
-                title: isGlobalCuratedRequest ? "Curated Deals: AI Qualified" : "Deals: AI Qualified",
-                description: isGlobalCuratedRequest 
-                  ? `Displaying ${aiCount} AI-qualified deals from a popular category.` 
-                  : `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}".`
-              };
-            }
-          } else { 
+          if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < fetchedItems.length) {
+            const aiQualifiedIds = new Set(aiQualifiedAndRankedItems.map(d => d.id));
+            const fallbackItems = fetchedItems.filter(d => !aiQualifiedIds.has(d.id));
+            finalProcessedItems.push(...fallbackItems);
+            console.log(`[HomePage loadItems] AI returned ${aiCount} (<${MIN_AI_QUALIFIED_ITEMS_THRESHOLD}) deals. Appending ${fallbackItems.length} server-processed fallback deals.`);
+            overallToastMessage = { title: "Deals: AI Enhanced", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}", plus ${fallbackItems.length} more.` };
+          } else if (aiCount > 0) {
+            overallToastMessage = { title: "Deals: AI Qualified", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}".` };
+          } else { // AI returned no items
+            finalProcessedItems = fetchedItems; // Fallback to server-processed list
+            overallToastMessage = { title: "Deals: Server Processed", description: `Displaying server-processed deals for "${queryToLoad}". AI found no further qualifications.` };
             console.warn(`[HomePage loadItems] AI qualification returned no items for query "${aiQueryContext}". Using server-processed list (${fetchedItems.length} items) as fallback.`);
-            finalProcessedItems = fetchedItems; 
-            const messageTitle = isGlobalCuratedRequest ? "Curated Deals: Server Processed" : "Deals: Server Processed";
-            const messageDesc = isGlobalCuratedRequest ? `Displaying server-processed deals for a popular category. AI found no further qualifications.` : `Displaying server-processed deals for "${queryToLoad}". AI found no further qualifications.`;
-            toastMessage = { title: messageTitle, description: messageDesc };
           }
-        } catch (aiRankErrorCaught: any) {
-          console.error("[HomePage loadItems] AI Qualification/Ranking failed:", aiRankErrorCaught);
-          finalProcessedItems = fetchedItems; 
-          const messageTitle = isGlobalCuratedRequest ? "Curated Deals: AI Error" : "Deals: AI Error";
-          const messageDesc = `AI processing failed. Displaying server-processed deals.`;
-          toastMessage = { title: messageTitle, description: messageDesc, variant: "destructive"};
-        }
-      } else {
-         finalProcessedItems = [];
-         if (queryToLoad) {
-            toastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" after server processing.`};
-         } else {
-            toastMessage = { title: "No Curated Deals", description: "No global curated deals found for the sampled category at this time."};
-         }
-         console.log(`[HomePage loadItems] No items fetched or processed. isGlobalCuratedRequest: ${isGlobalCuratedRequest}, query: "${queryToLoad}"`);
-      }
-    } catch (e: any) {
-      console.error(`[HomePage loadItems] Failed to load items. Query/Marker '${effectiveQueryForEbay}'. Error:`, e);
-      let displayMessage = `Failed to load deals. Please try again.`;
-      if (typeof e.message === 'string') {
-        if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
-          displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs.";
-          setIsAuthError(true);
-        } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
-          displayMessage = "eBay API Authentication Failed. Check credentials and server logs.";
-          setIsAuthError(true);
-        } else if (e.message.includes("Failed to fetch from eBay Browse API") || e.message.includes("Failed to fetch eBay items")) {
-          displayMessage = `Error fetching from eBay for "${effectiveQueryForEbay}". Check query or eBay status. Server logs may have details.`;
         } else {
-          displayMessage = e.message;
+          overallToastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" after server processing.` };
+          console.log(`[HomePage loadItems] No items fetched for query "${queryToLoad}".`);
         }
+      } catch (e: any) {
+        console.error(`[HomePage loadItems] Failed to load items for query '${effectiveQueryForEbay}'. Error:`, e);
+        let displayMessage = `Failed to load deals. Please try again.`;
+        if (typeof e.message === 'string') {
+          if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
+            displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs.";
+            setIsAuthError(true);
+          } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
+            displayMessage = "eBay API Authentication Failed. Check credentials and server logs.";
+            setIsAuthError(true);
+          } else if (e.message.includes("Failed to fetch from eBay Browse API") || e.message.includes("Failed to fetch eBay items")) {
+            displayMessage = `Error fetching from eBay for "${effectiveQueryForEbay}". Check query or eBay status. Server logs may have details.`;
+          } else {
+            displayMessage = e.message;
+          }
+        }
+        setError(displayMessage);
+        finalProcessedItems = [];
       }
-      setError(displayMessage);
-      finalProcessedItems = [];
-    } finally {
-      setAllItems(finalProcessedItems);
-      setDisplayedItems(finalProcessedItems.slice(0, ITEMS_PER_PAGE));
-      setVisibleItemCount(ITEMS_PER_PAGE);
-      setIsLoading(false);
-      setIsRanking(false);
-      console.log(`[HomePage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} items.`);
+    } else {
+      // Iterative curated deals fetching logic
+      console.log(`[HomePage loadItems] Starting curated deals fetch loop. Target: ${MIN_DESIRED_CURATED_DEALS} items. Max attempts: ${MAX_CURATED_FETCH_ATTEMPTS}.`);
+      setIsLoading(true); // Ensure loading is true at the start of the loop process
 
-      if (toastMessage && !error) {
-        toast(toastMessage);
-      } else if (error && !isAuthError) {
-        toast({title: "Error Loading Deals", description: "An unexpected error occurred.", variant: "destructive"});
+      while (finalProcessedItems.length < MIN_DESIRED_CURATED_DEALS && fetchAttempts < MAX_CURATED_FETCH_ATTEMPTS) {
+        fetchAttempts++;
+        console.log(`[HomePage loadItems] Curated fetch attempt ${fetchAttempts}/${MAX_CURATED_FETCH_ATTEMPTS}. Current items: ${finalProcessedItems.length}`);
+        
+        if (fetchAttempts > 1 || finalProcessedItems.length > 0) { // Show ranking spinner for subsequent attempts or if we already have some items
+             setIsRanking(true);
+        }
+
+        try {
+          const fetchedItemsFromAttempt: BayBotItem[] = await fetchItems('deal', GLOBAL_CURATED_DEALS_REQUEST_MARKER);
+          const newUniqueFetchedItems = fetchedItemsFromAttempt.filter(item => !processedItemIds.has(item.id));
+
+          if (newUniqueFetchedItems.length === 0) {
+            console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: No new unique items fetched. Skipping AI for this batch.`);
+            setIsRanking(false); // Turn off ranking if it was on for this attempt
+            if (fetchAttempts === MAX_CURATED_FETCH_ATTEMPTS && finalProcessedItems.length === 0) {
+              overallToastMessage = { title: "No Curated Deals", description: "Could not find enough curated deals after several attempts." };
+            }
+            continue;
+          }
+          
+          console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: Fetched ${fetchedItemsFromAttempt.length} items (${newUniqueFetchedItems.length} new). Sending to AI.`);
+          setIsRanking(true); // Ensure ranking is true before AI call if new items exist
+
+          const aiQueryContext = "general curated deals";
+          const aiQualifiedForBatch: BayBotItem[] = await rankDealsAI(newUniqueFetchedItems, aiQueryContext);
+          const aiCountForBatch = aiQualifiedForBatch.length;
+          
+          let itemsToAddFromBatch: BayBotItem[] = [];
+
+          if (aiCountForBatch > 0) {
+            itemsToAddFromBatch = [...aiQualifiedForBatch];
+            if (aiCountForBatch < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCountForBatch < newUniqueFetchedItems.length) {
+              const aiBatchIds = new Set(aiQualifiedForBatch.map(d => d.id));
+              const fallbackBatchItems = newUniqueFetchedItems.filter(d => !aiBatchIds.has(d.id));
+              itemsToAddFromBatch.push(...fallbackBatchItems);
+              console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: AI qualified ${aiCountForBatch}, added ${fallbackBatchItems.length} fallbacks from this batch of new items.`);
+            } else {
+              console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: AI qualified ${aiCountForBatch} items from this batch of new items.`);
+            }
+          } else {
+            itemsToAddFromBatch = newUniqueFetchedItems;
+            console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: AI returned 0 items. Using all ${newUniqueFetchedItems.length} new unique server-processed items from this batch.`);
+          }
+
+          itemsToAddFromBatch.forEach(item => {
+            if (!processedItemIds.has(item.id)) {
+              finalProcessedItems.push(item);
+              processedItemIds.add(item.id);
+            }
+          });
+          
+          setAllItems([...finalProcessedItems]);
+          setDisplayedItems(finalProcessedItems.slice(0, visibleItemCount > 0 ? visibleItemCount : ITEMS_PER_PAGE ));
+
+
+        } catch (e: any) {
+          console.error(`[HomePage loadItems] Error during curated fetch attempt ${fetchAttempts}:`, e);
+          if (typeof e.message === 'string' && (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure") || e.message.includes("OAuth"))) {
+            let displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs.";
+            setError(displayMessage);
+            setIsAuthError(true);
+            finalProcessedItems = []; 
+            break; 
+          }
+          if (fetchAttempts === MAX_CURATED_FETCH_ATTEMPTS) {
+            setError("Failed to load sufficient curated deals after multiple attempts.");
+          }
+        } finally {
+          setIsRanking(false); // Turn off ranking spinner for this batch
+        }
+      } // End of while loop
+
+      if (finalProcessedItems.length > 0 && !error) {
+        overallToastMessage = {
+          title: "Curated Deals Loaded",
+          description: `Displaying ${finalProcessedItems.length} curated deals. ${fetchAttempts} fetch attempt(s) made.`
+        };
+      } else if (finalProcessedItems.length === 0 && !error && fetchAttempts >= MAX_CURATED_FETCH_ATTEMPTS) {
+         overallToastMessage = {
+          title: "No Curated Deals",
+          description: `Could not find curated deals after ${fetchAttempts} attempt(s). Try a specific search.`
+        };
       }
     }
-  }, [toast]);
+
+    setAllItems(finalProcessedItems);
+    setDisplayedItems(finalProcessedItems.slice(0, ITEMS_PER_PAGE));
+    setVisibleItemCount(ITEMS_PER_PAGE);
+    setIsLoading(false);
+    setIsRanking(false);
+    console.log(`[HomePage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} total items. Attempts: ${fetchAttempts}`);
+
+    if (overallToastMessage && !error) {
+      toast(overallToastMessage);
+    } else if (error && !isAuthError) {
+      toast({ title: "Error Loading Deals", description: error || "An unexpected error occurred.", variant: "destructive" });
+    }
+  }, [toast]); // Removed visibleItemCount from dependencies
 
   useEffect(() => {
     console.log(`[HomePage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
-    setInputValue(currentQueryFromUrl); 
+    setInputValue(currentQueryFromUrl);
     loadItems(currentQueryFromUrl);
   }, [currentQueryFromUrl, loadItems]);
 
@@ -196,6 +254,11 @@ function HomePageContent() {
     ? `Try adjusting your search for "${currentQueryFromUrl}".`
     : "No global curated deals available for the sampled category right now. Check back later!";
 
+  if (allItems.length === 0 && !isLoading && !isRanking && !error && currentQueryFromUrl === '') {
+      noItemsDescription = `We tried fetching curated deals but couldn't find enough. Try a specific search!`;
+  }
+
+
   return (
     <div className="flex flex-col min-h-screen">
       <AppHeader
@@ -203,8 +266,8 @@ function HomePageContent() {
         onSearchInputChange={setInputValue}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={() => {
-          setInputValue(''); 
-          router.push('/'); 
+          setInputValue('');
+          router.push('/');
         }}
       />
       <main className="flex-grow container mx-auto px-4 py-8">
