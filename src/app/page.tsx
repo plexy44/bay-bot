@@ -6,13 +6,12 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { AppHeader } from '@/components/baybot/AppHeader';
 import { ItemCard } from '@/components/baybot/ItemCard';
-// import { AnalysisModal } from '@/components/baybot/AnalysisModal'; // Dynamically imported
 import { ItemGridLoadingSkeleton } from '@/components/baybot/LoadingSkeleton';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { BarChart2, ShoppingBag, Search, AlertTriangle } from "lucide-react";
 import type { BayBotItem } from '@/types';
-import { fetchItems, getRandomPopularSearchTerm } from '@/services/ebay-api-service';
+import { fetchItems, getBatchedCuratedKeywordsQuery, getRandomPopularSearchTerm } from '@/services/ebay-api-service';
 import { rankDeals as rankDealsAI, type Deal as AIDeal, type RankDealsInput } from '@/ai/flows/rank-deals';
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -49,26 +48,36 @@ export default function HomePage() {
     imageUrl: item.imageUrl,
   }), []);
 
-  const loadItems = useCallback(async (view: 'deals' | 'auctions', query: string) => {
+  const loadItems = useCallback(async (view: 'deals' | 'auctions', queryFromSearch: string) => {
     setIsLoading(true);
     setError(null);
     setIsAuthError(false);
     let fetchedItems: BayBotItem[] = [];
-    const isCuratedHomepage = view === 'deals' && !query;
+    const isCuratedHomepage = view === 'deals' && !queryFromSearch;
     let aiRankedSuccessfully = false;
     let rankErrorOccurred = false;
+    let finalQueryForEbay = queryFromSearch;
 
     try {
-      fetchedItems = await fetchItems(view, query, isCuratedHomepage);
+      if (isCuratedHomepage) {
+        finalQueryForEbay = await getBatchedCuratedKeywordsQuery();
+      } else if (view === 'auctions' && !queryFromSearch) {
+        finalQueryForEbay = "collectible auction"; // Default for auctions if no query
+      } else if (!finalQueryForEbay) {
+        // Fallback if query is somehow still empty (e.g. deals view with empty search after interactions)
+        finalQueryForEbay = await getRandomPopularSearchTerm(); 
+      }
       
-      if ((query || isCuratedHomepage) && fetchedItems.length > 0 && view === 'deals') {
+      fetchedItems = await fetchItems(view, finalQueryForEbay, isCuratedHomepage);
+      
+      if ((finalQueryForEbay || isCuratedHomepage) && fetchedItems.length > 0 && view === 'deals') {
         setIsRanking(true);
         const dealsForAI = fetchedItems.map(mapToAIDeal);
         try {
-          const aiContextQuery = query || (isCuratedHomepage ? await getRandomPopularSearchTerm() : "general top deals");
+          // Use finalQueryForEbay (which is the batched query for curated) as context for AI
           const aiRankerInput: RankDealsInput = {
             deals: dealsForAI,
-            query: aiContextQuery, 
+            query: finalQueryForEbay, 
           };
           const rankedAIDeals = await rankDealsAI(aiRankerInput);
           
@@ -95,6 +104,7 @@ export default function HomePage() {
       }
       
       if (view === 'deals') {
+        // Always sort deals by discount percentage after AI ranking (or if AI ranking failed/skipped)
         fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
       }
 
@@ -111,12 +121,12 @@ export default function HomePage() {
           });
         } else if (aiRankedSuccessfully) {
           toast({
-            title: isCuratedHomepage ? "Top Deals: AI Refined & Discount Sorted" : "Deals: AI Refined & Discount Sorted",
+            title: isCuratedHomepage ? "Curated Deals: AI Refined & Discount Sorted" : "Deals: AI Refined & Discount Sorted",
             description: isCuratedHomepage 
-              ? "Displaying AI-enhanced deals, sorted by highest discount."
+              ? "Displaying AI-enhanced curated deals, sorted by highest discount."
               : "Items refined by AI, now sorted by highest discount.",
           });
-        } else if (query || isCuratedHomepage) { 
+        } else if (queryFromSearch || isCuratedHomepage) { 
           toast({
             title: "Deals Sorted by Discount",
             description: "Displaying deals sorted by highest discount. AI ranking provided no changes or was not applicable.",
@@ -148,12 +158,12 @@ export default function HomePage() {
       setIsLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast, mapToAIDeal]); 
+  }, [toast, mapToAIDeal]); // Removed loadItems from dependencies to avoid infinite loop
   
   useEffect(() => {
      loadItems(currentView, searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, searchQuery, loadItems]);
+  }, [currentView, searchQuery]); // loadItems itself should not be a dependency here if it's defined with useCallback and its own deps are correct
 
 
   const handleSearch = (query: string) => {
@@ -162,6 +172,10 @@ export default function HomePage() {
   
   const handleViewChange = (view: 'deals' | 'auctions') => {
     setCurrentView(view);
+    // If switching to deals and search is empty, it will trigger curated load
+    // If switching to auctions and search is empty, loadItems handles default auction query
+    if (view === 'deals' && searchQuery) setSearchQuery(''); // Clear search when switching to deals tab to trigger curated if desired, or user can search again
+    else if (view === 'auctions' && searchQuery) setSearchQuery(''); // Clear search for auctions to get default broad auction list or user can search
   };
 
   const handleLoadMore = () => {
@@ -202,7 +216,7 @@ export default function HomePage() {
             <p className="text-muted-foreground">
               {searchQuery 
                 ? `Try adjusting your search for "${searchQuery}".`
-                : `No items found for the current view. Try a search or check back later.`
+                : (currentView === 'deals' ? `No curated deals found. Try a specific search or check back later.` : `No auctions found. Try a specific search or check back later.`)
               }
             </p>
           </div>
@@ -241,4 +255,3 @@ export default function HomePage() {
     </div>
   );
 }
-

@@ -19,6 +19,7 @@ interface CacheEntry {
 }
 const fetchItemsCache = new Map<string, CacheEntry>();
 const FETCH_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CURATED_BATCH_SIZE = 3;
 
 async function getEbayAuthToken(): Promise<string> {
   if (ebayToken && Date.now() < ebayToken.fetched_at + (ebayToken.expires_in - 300) * 1000) {
@@ -128,13 +129,11 @@ function getHighResolutionImageUrl(originalUrl?: string): string {
   const defaultPlaceholder = 'https://placehold.co/600x400.png';
   if (!originalUrl) return defaultPlaceholder;
 
-  // Try to replace size specifier like s-l225, s-l500 with s-l1600 for higher resolution
-  // This works for many eBay image URLs.
   const ebayImagePattern = /(.*\/s-l)\d+(\.(?:jpg|jpeg|png))/i;
   if (originalUrl.includes('ebayimg.com') && ebayImagePattern.test(originalUrl)) {
     return originalUrl.replace(ebayImagePattern, '$11600$2');
   }
-  return originalUrl; // Return original if not an eBay pattern or no specifier found
+  return originalUrl;
 }
 
 
@@ -170,11 +169,13 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
     if (browseItem.buyingOptions?.includes('FIXED_PRICE') && !browseItem.buyingOptions?.includes('AUCTION')) {
         determinedItemType = 'deal';
-    } else if (browseItem.buyingOptions?.includes('AUCTION')) {
+    } else if (browseItem.buyingOptions?.includes('AUCTION') && !browseItem.buyingOptions?.includes('FIXED_PRICE')) {
         determinedItemType = 'auction';
+    } else if (browseItem.buyingOptions?.includes('AUCTION') && browseItem.buyingOptions?.includes('FIXED_PRICE')) {
+        // If both, respect the typeFromFilter passed in (deals view shows deals, auctions view shows auctions)
+        determinedItemType = itemTypeFromFilter;
     }
-    // If it has both, and typeFromFilter was 'deal', keep 'deal'. If 'auction', keep 'auction'.
-    // This handles items that might be listed as both (rare for item_summary).
+
 
     const description = browseItem.shortDescription ||
                         (browseItem.itemWebUrl ? `View this item on eBay: ${browseItem.itemWebUrl}` :
@@ -209,10 +210,10 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
 
 export const fetchItems = async (
   type: 'deal' | 'auction',
-  query?: string,
-  isCuratedHomepageDeals: boolean = false
+  query: string, // Query is now mandatory, page.tsx will generate batched query for curated.
+  isCuratedHomepage: boolean = false // Flag to differentiate cache keys.
 ): Promise<BayBotItem[]> => {
-  const cacheKey = `browse:${type}:${query || ''}:${isCuratedHomepageDeals}`;
+  const cacheKey = `browse:${type}:${query}:${isCuratedHomepage}`;
 
   if (fetchItemsCache.has(cacheKey)) {
     const cachedEntry = fetchItemsCache.get(cacheKey)!;
@@ -227,32 +228,23 @@ export const fetchItems = async (
   console.log(`[Cache MISS] Fetching items from Browse API for key: ${cacheKey}`);
 
   const authToken = await getEbayAuthToken();
-
-  let keywords = query || '';
-  if (isCuratedHomepageDeals && !keywords) {
-    keywords = await getRandomPopularSearchTerm(); 
-    console.log(`[BayBot Curated Homepage] Using random search term: "${keywords}" for initial deals load.`);
-  } else if (type === 'auction' && !keywords) {
-    keywords = "collectible auction"; 
-    console.log(`[BayBot Auctions] No query, using default: "${keywords}"`);
-  }
-
-  if (!keywords) {
-    console.warn("[BayBot Fetch] No keywords determined, defaulting to 'popular items'. This may happen if curated/auction defaults are not met and no query is provided.");
-    keywords = "popular items"; 
+  
+  // Query is now directly used as keywordsForApi.
+  // Defaulting to "popular items" if query is somehow empty is a safety net,
+  // but page.tsx should ensure query is populated.
+  const keywordsForApi = query || "popular items"; 
+  if (!query) {
+      console.warn(`[BayBot Fetch] query was empty, defaulting to "popular items". This should ideally be handled by the caller.`);
   }
 
 
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search'); 
-  browseApiUrl.searchParams.append('q', keywords);
+  browseApiUrl.searchParams.append('q', keywordsForApi);
   browseApiUrl.searchParams.append('limit', '100');
 
   let filterOptions = ['itemLocationCountry:GB'];
   if (type === 'deal') {
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
-    // Optionally, to try and get deals, we can add aspect_filter for deal programs if available
-    // filterOptions.push('aspect_filter:{UPC,<ASIN_FOR_PRODUCT>,DealProgram:<PROGRAM_NAME>}');
-    // However, 'buyingOptions:{FIXED_PRICE}' is the most direct way to get non-auction items.
   } else { 
     filterOptions.push('buyingOptions:{AUCTION}');
     browseApiUrl.searchParams.append('sort', '-itemEndDate'); 
@@ -272,14 +264,14 @@ export const fetchItems = async (
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error(`eBay Browse API request failed: ${response.status} for query "${keywords}", type "${type}". Body: ${errorBody}`);
+      console.error(`eBay Browse API request failed: ${response.status} for query "${keywordsForApi}", type "${type}". Body: ${errorBody}`);
       throw new Error(`Failed to fetch from eBay Browse API (status ${response.status}). Check server logs for more details. eBay's response: ${errorBody.substring(0, 500)}`);
     }
 
     const data = await response.json();
 
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
-      console.warn('No items found or unexpected API response structure from eBay Browse API for query:', keywords, 'type:', type, 'Data:', JSON.stringify(data, null, 2));
+      console.warn('No items found or unexpected API response structure from eBay Browse API for query:', keywordsForApi, 'type:', type, 'Data:', JSON.stringify(data, null, 2));
       fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
     }
@@ -296,7 +288,7 @@ export const fetchItems = async (
     return transformedItems;
 
   } catch (error) {
-    console.error(`Error in fetchItems for query "${keywords}", type "${type}":`, error);
+    console.error(`Error in fetchItems for query "${keywordsForApi}", type "${type}":`, error);
     if (error instanceof Error) {
         if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API") || error.message.includes("Failed to fetch from eBay Browse API") || error.message.includes('Critical eBay API Authentication Failure')) {
              throw error; 
@@ -314,4 +306,21 @@ export async function getRandomPopularSearchTerm(): Promise<string> {
   }
   const randomIndex = Math.floor(Math.random() * curatedHomepageSearchTerms.length);
   return curatedHomepageSearchTerms[randomIndex];
+}
+
+export async function getBatchedCuratedKeywordsQuery(): Promise<string> {
+  if (curatedHomepageSearchTerms.length === 0) {
+    console.warn("[BayBot getBatchedCuratedKeywordsQuery] Curated homepage search terms list is empty. Defaulting to 'popular electronics'.");
+    return "popular electronics";
+  }
+
+  const shuffled = [...curatedHomepageSearchTerms].sort(() => 0.5 - Math.random());
+  const selectedTerms = shuffled.slice(0, CURATED_BATCH_SIZE);
+  
+  if (selectedTerms.length === 0) { // Should not happen if list is not empty
+    return "featured deals";
+  }
+  
+  // Enclose each term in parentheses for better OR query structure
+  return selectedTerms.map(term => `(${term})`).join(' OR ');
 }
