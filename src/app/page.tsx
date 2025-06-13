@@ -31,7 +31,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRanking, setIsRanking] = useState(false); // Corrected initialization
+  const [isRanking, setIsRanking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAuthError, setIsAuthError] = useState(false);
 
@@ -51,35 +51,38 @@ export default function HomePage() { // This is the Curated Deals page at '/'
 
   const loadItems = useCallback(async (queryFromSearchState: string) => {
     console.log(`[HomePage loadItems] Initiating. Query from state: "${queryFromSearchState}"`);
-    setAllItems([]); 
+    setAllItems([]);
     setDisplayedItems([]);
     setIsLoading(true);
     setIsRanking(false);
     setError(null);
     setIsAuthError(false);
-    
+
     let processedItems: BayBotItem[] = [];
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
     const isGlobalCuratedRequest = queryFromSearchState === '';
-    const fetchType = 'deals'; 
+    const fetchType = 'deals';
     const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_DEALS_REQUEST_MARKER : queryFromSearchState;
     console.log(`[HomePage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
     try {
-      let fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
+      const fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
       console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items from fetchItems for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
 
       if (fetchedItems.length > 0) {
         if (isGlobalCuratedRequest) {
+          // For global curated deals, sort by discount client-side if AI isn't ranking (or as fallback)
+          // AI ranking happens below if not a global request or if specifically implemented for it
           processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-          toastMessage = { title: "Curated Deals", description: `Displaying global deals for a popular category, sorted by discount.` };
+          toastMessage = { title: "Curated Deals", description: `Displaying deals for a popular category, sorted by discount.` };
           console.log(`[HomePage loadItems] Global curated deals (${processedItems.length}) sorted by discount.`);
         } else {
+          // For user-searched deals, attempt AI ranking
           setIsRanking(true);
           const dealsInputForAI: AIDeal[] = fetchedItems.map(mapToAIDeal);
           const aiQueryContext = queryFromSearchState;
-          
+
           try {
             const aiRankerInput: RankDealsInput = { deals: dealsInputForAI, query: aiQueryContext };
             console.log(`[HomePage loadItems] Sending ${dealsInputForAI.length} deals to AI for ranking. AI Query Context: "${aiQueryContext}"`);
@@ -91,7 +94,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
                 const posA = orderMap.get(a.id);
                 const posB = orderMap.get(b.id);
                 if (posA === undefined && posB === undefined) return 0;
-                if (posA === undefined) return 1; 
+                if (posA === undefined) return 1;
                 if (posB === undefined) return -1;
                 return posA - posB;
               });
@@ -143,25 +146,26 @@ export default function HomePage() { // This is the Curated Deals page at '/'
       setIsLoading(false);
       setIsRanking(false);
       console.log(`[HomePage loadItems] Finalizing. Displayed ${processedItems.slice(0, ITEMS_PER_PAGE).length} of ${processedItems.length} items.`);
-      
+
       if (toastMessage && !error) {
         toast(toastMessage);
       } else if (error && !isAuthError) {
         toast({title: "Error Loading Deals", description: "An unexpected error occurred.", variant: "destructive"});
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast, mapToAIDeal]);
 
   useEffect(() => {
     console.log(`[HomePage initial load useEffect] Triggering loadItems. Initial searchQuery: "${searchQuery}"`);
     loadItems(searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadItems]); 
+  }, [loadItems]);
 
 
   const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query); 
-    loadItems(query);      
+    setSearchQuery(query);
+    loadItems(query);
   }, [loadItems]);
 
 
@@ -177,8 +181,8 @@ export default function HomePage() { // This is the Curated Deals page at '/'
   };
 
   let noItemsTitle = "No Deals Found";
-  let noItemsDescription = searchQuery 
-    ? `Try adjusting your search for "${searchQuery}".` 
+  let noItemsDescription = searchQuery
+    ? `Try adjusting your search for "${searchQuery}".`
     : "No global curated deals available for the sampled category right now. Check back later!";
 
   return (
@@ -220,7 +224,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
           </>
         )}
       </main>
-      <footer className="text-center py-6 border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
+      <footer className="sticky bottom-0 z-10 text-center py-6 border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
         <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
           <p>&copy; {new Date().getFullYear()} BayBot. All rights reserved.</p>
           <ThemeToggle />
@@ -236,5 +240,3 @@ export default function HomePage() { // This is the Curated Deals page at '/'
     </div>
   );
 }
-
-    

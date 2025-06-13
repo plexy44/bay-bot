@@ -1,3 +1,4 @@
+
 'use client';
 
 import type React from 'react';
@@ -39,26 +40,26 @@ export default function AuctionsPage() {
 
   const loadItems = useCallback(async (queryFromSearchState: string) => {
     console.log(`[AuctionsPage loadItems] Initiating. Query from state: "${queryFromSearchState}"`);
+    setAllItems([]);
+    setDisplayedItems([]);
     setIsLoading(true);
     setError(null);
     setIsAuthError(false);
-    setAllItems([]); // Clear previous items to prevent flicker
-    setDisplayedItems([]); // Clear previous items
-    
+
     let processedItems: BayBotItem[] = [];
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
     const isGlobalCuratedRequest = queryFromSearchState === '';
-    const fetchType = 'auctions'; 
+    const fetchType = 'auctions';
     const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER : queryFromSearchState;
     console.log(`[AuctionsPage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
     try {
       let fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
       console.log(`[AuctionsPage loadItems] Fetched ${fetchedItems.length} items for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
-      
+
       // Auctions are already sorted by API (endingSoonest) via fetchItems
-      processedItems = fetchedItems; 
+      processedItems = fetchedItems;
 
       if (processedItems.length > 0) {
         if (isGlobalCuratedRequest) {
@@ -91,32 +92,33 @@ export default function AuctionsPage() {
         }
       }
       setError(displayMessage);
-      processedItems = []; 
+      processedItems = [];
     } finally {
       setAllItems(processedItems);
       setDisplayedItems(processedItems.slice(0, ITEMS_PER_PAGE));
       setVisibleItemCount(ITEMS_PER_PAGE);
       setIsLoading(false);
       console.log(`[AuctionsPage loadItems] Finalizing. Displayed ${processedItems.slice(0, ITEMS_PER_PAGE).length} of ${processedItems.length} items.`);
-      
+
       if (toastMessage && !error) {
         toast(toastMessage);
       } else if (error && !isAuthError) {
          toast({title: "Error Loading Auctions", description: "An unexpected error occurred.", variant: "destructive"});
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast]);
 
   useEffect(() => {
     console.log(`[AuctionsPage initial load useEffect] Triggering loadItems. Initial searchQuery: "${searchQuery}"`);
     loadItems(searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadItems]); // loadItems is stable due to useCallback and its own stable dependencies.
+  }, [loadItems]);
 
 
   const handleSearch = useCallback((query: string) => {
-    setSearchQuery(query); 
-    loadItems(query);     
+    setSearchQuery(query);
+    loadItems(query);
   }, [loadItems]);
 
 
@@ -128,11 +130,11 @@ export default function AuctionsPage() {
 
   const handleAnalyzeItem = (item: BayBotItem) => {
     setSelectedItemForAnalysis(item);
-    setIsAnalysisModalOpen(true); 
+    setIsAnalysisModalOpen(true);
   };
-  
+
   let noItemsTitle = "No Auctions Found";
-  let noItemsDescription = searchQuery 
+  let noItemsDescription = searchQuery
     ? `Try adjusting your search for "${searchQuery}".`
     : "No global curated auctions available for the sampled category at the moment. Check back later!";
 
@@ -176,7 +178,7 @@ export default function AuctionsPage() {
           </>
         )}
       </main>
-      <footer className="text-center py-6 border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
+      <footer className="sticky bottom-0 z-10 text-center py-6 border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
         <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
           <p>&copy; {new Date().getFullYear()} BayBot. All rights reserved.</p>
           <ThemeToggle />
