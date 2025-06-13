@@ -9,7 +9,7 @@ import type { BayBotItem } from '@/types';
 
 interface ItemCardProps {
   item: BayBotItem;
-  onAnalyze: (item: BayBotItem) => void; // Re-added for triggering analysis modal
+  onAnalyze: (item: BayBotItem) => void;
 }
 
 const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
@@ -39,8 +39,8 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAnalyze(item); }}
               aria-label={`Analyze deal with ${item.discountPercentage}% off`}
             >
-              <Info className="h-3.5 w-3.5" />
-              <span>{item.discountPercentage}% OFF</span>
+              <Info className="h-3.5 w-3.5 text-white" />
+              <span className="text-white">{item.discountPercentage}% OFF</span>
             </Badge>
           )}
         </div>
@@ -95,3 +95,4 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
 
 export const ItemCard = React.memo(ItemCardComponent);
 ItemCard.displayName = 'ItemCard';
+
