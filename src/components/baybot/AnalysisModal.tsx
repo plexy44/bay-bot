@@ -6,7 +6,8 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertTriangle, Sparkles, Zap } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, AlertTriangle, Sparkles, Zap, Tag, Percent, Info } from "lucide-react";
 import type { BayBotItem, AnalysisResult } from '@/types';
 import { analyzeDeal, type AnalyzeDealInput } from '@/ai/flows/analyze-deal';
 
@@ -36,7 +37,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
         try {
           const input: AnalyzeDealInput = {
             title: item.title,
-            description: item.description || "N/A", // Ensure description is passed
+            description: item.description || "N/A",
             price: item.price,
             originalPrice: item.originalPrice || item.price,
             discountPercentage: item.discountPercentage || 0,
@@ -91,12 +92,43 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
               <p className="text-muted-foreground">Analyzing deal, please wait...</p>
             </div>
           )}
-          {error && ( // Show error for both deals and auctions if applicable
+          {error && (
             <div className="flex flex-col items-center justify-center h-40 text-destructive">
               <AlertTriangle className="h-12 w-12 mb-4" />
               <p>{error}</p>
             </div>
           )}
+
+          {/* Deal Price Details Section */}
+          {item.type === 'deal' && (item.originalPrice || (item.discountPercentage && item.discountPercentage > 0)) && !isLoading && !error && (
+            <div className="space-y-3 p-4 bg-muted/20 rounded-lg border border-border/30 backdrop-blur-sm mb-4">
+              <h4 className="text-md font-semibold text-foreground flex items-center">
+                <Tag className="w-5 h-5 mr-2 text-primary/80" />
+                Deal Breakdown
+              </h4>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-muted-foreground">Current Price:</span>
+                <span className="text-lg font-bold text-primary">£{item.price.toFixed(2)}</span>
+              </div>
+              {item.originalPrice && item.originalPrice > item.price && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">Original Price:</span>
+                  <span className="text-sm text-muted-foreground line-through">£{item.originalPrice.toFixed(2)}</span>
+                </div>
+              )}
+              {item.discountPercentage && item.discountPercentage > 0 && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-muted-foreground">You Save:</span>
+                  <Badge variant="destructive" className="text-sm">
+                    <Percent className="h-4 w-4 mr-1" />
+                    {item.discountPercentage}%
+                  </Badge>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Analysis Scores and Summary - only if analysis is successful */}
           {analysis && !isLoading && !error && item.type === 'deal' && (
             <>
               <div className="space-y-2">
@@ -124,6 +156,10 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
               </div>
             </>
           )}
+           {/* Message if AI analysis is loading but price details are shown */}
+           {isLoading && item.type === 'deal' && (item.originalPrice || (item.discountPercentage && item.discountPercentage > 0)) && (
+             <p className="text-center text-sm text-muted-foreground mt-2">Loading AI insights...</p>
+           )}
         </div>
          <div className="pt-4 border-t border-border/50">
             <Button onClick={onClose} variant="outline" className="w-full interactive-glow">Close</Button>

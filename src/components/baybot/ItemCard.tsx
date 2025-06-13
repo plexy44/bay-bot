@@ -4,15 +4,15 @@ import React from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Percent, Tag, TrendingUp, ShieldCheck, ExternalLink } from "lucide-react"; // Added ExternalLink
+import { Clock, Percent, Tag, TrendingUp, ShieldCheck, ExternalLink, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
 
 interface ItemCardProps {
   item: BayBotItem;
-  // onAnalyze prop is removed as per user request to replace button functionality
+  onAnalyze: (item: BayBotItem) => void; // Re-added for triggering analysis modal
 }
 
-const ItemCardComponent: React.FC<ItemCardProps> = ({ item }) => {
+const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
   const canViewItem = !!item.itemLink;
   const buttonText = item.type === 'deal' ? "View Deal" : "View Auction";
 
@@ -30,8 +30,17 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item }) => {
             priority={false}
           />
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
-            <Badge variant="destructive" className="absolute top-3 right-3 shadow-lg bg-destructive/80 backdrop-blur-sm text-destructive-foreground">
-              <Percent className="h-3.5 w-3.5 mr-1" /> {item.discountPercentage}% OFF
+            <Badge
+              variant="destructive"
+              className="absolute top-3 right-3 shadow-lg bg-destructive/80 backdrop-blur-sm text-destructive-foreground cursor-pointer hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 flex items-center gap-1"
+              onClick={() => onAnalyze(item)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAnalyze(item); }}
+              aria-label={`Analyze deal with ${item.discountPercentage}% off`}
+            >
+              <Info className="h-3.5 w-3.5" />
+              <span>{item.discountPercentage}% OFF</span>
             </Badge>
           )}
         </div>
@@ -86,4 +95,3 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item }) => {
 
 export const ItemCard = React.memo(ItemCardComponent);
 ItemCard.displayName = 'ItemCard';
-

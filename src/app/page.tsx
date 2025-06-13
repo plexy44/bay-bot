@@ -64,18 +64,19 @@ export default function HomePage() {
         finalQueryForEbay = await getBatchedCuratedKeywordsQuery();
         console.log(`[HomePage] Curated homepage. Batched query: ${finalQueryForEbay}`);
       } else if (view === 'auctions' && !queryFromSearch) {
-        finalQueryForEbay = "collectible auction";
+        finalQueryForEbay = "collectible auction"; // Default for auctions
         console.log(`[HomePage] Auctions view, no query. Using default: ${finalQueryForEbay}`);
-      } else if (!finalQueryForEbay && view === 'deals') {
+      } else if (!finalQueryForEbay && view === 'deals') { // Fallback if query is empty string for deals
         finalQueryForEbay = await getBatchedCuratedKeywordsQuery();
         console.log(`[HomePage] Deals view, query empty. Fallback to batched: ${finalQueryForEbay}`);
-      } else if (!finalQueryForEbay && view === 'auctions') {
+      } else if (!finalQueryForEbay && view === 'auctions') { // Fallback if query is empty string for auctions
         finalQueryForEbay = "collectible auction";
         console.log(`[HomePage] Auctions view, query empty. Fallback to default auction: ${finalQueryForEbay}`);
       }
       
+      // Final safety net for query
       if (!finalQueryForEbay) {
-        finalQueryForEbay = await getRandomPopularSearchTerm();
+        finalQueryForEbay = await getRandomPopularSearchTerm(); // Or a generic term like "electronics"
         console.warn(`[HomePage] finalQueryForEbay was still empty. Using random popular term: ${finalQueryForEbay}`);
       }
 
@@ -87,53 +88,37 @@ export default function HomePage() {
         try {
           const aiRankerInput: RankDealsInput = {
             deals: dealsInputForAI,
-            query: finalQueryForEbay,
+            query: finalQueryForEbay, // Use the actual query sent to eBay for AI context
           };
           const rankedOutputFromAI: AIDeal[] = await rankDealsAI(aiRankerInput);
 
+          // Check if AI returned a new list of the same length (successful ranking)
           if (rankedOutputFromAI !== dealsInputForAI && rankedOutputFromAI.length === dealsInputForAI.length) {
             const orderMap = new Map(rankedOutputFromAI.map((deal, index) => [deal.id, index]));
             fetchedItems.sort((a, b) => {
               const posA = orderMap.get(a.id);
               const posB = orderMap.get(b.id);
               if (posA === undefined && posB === undefined) return 0;
-              if (posA === undefined) return 1;
+              if (posA === undefined) return 1; // Put items not in AI output at the end
               if (posB === undefined) return -1;
               return posA - posB;
             });
             aiRankedSuccessfully = true;
-            toast({
-              title: isCuratedHomepage ? "Curated Deals: AI Ranked" : "Deals: AI Ranked",
-              description: isCuratedHomepage
-                ? "Displaying AI-ranked curated deals."
-                : "Items intelligently ranked by AI.",
-            });
           } else {
             // AI did not provide a new ranking (e.g., error, no change, or length mismatch)
+            // Fallback: sort by discount percentage if AI ranking wasn't successful or applicable
             fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-            if (fetchedItems.length > 0) {
-                 toast({
-                    title: "Deals Sorted by Discount",
-                    description: "Displaying deals sorted by highest discount. AI ranking provided no changes or was not applicable.",
-                    variant: "default",
-                });
-            }
           }
         } catch (aiRankErrorCaught: any) {
           console.error("AI Ranking failed:", aiRankErrorCaught);
           rankErrorOccurred = true;
+          // Fallback sort on AI error
           fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-          toast({
-            title: "AI Ranking Error, Sorted by Discount",
-            description: "Displaying deals sorted by highest discount. AI service might be unavailable.",
-            variant: "destructive",
-          });
         } finally {
           setIsRanking(false);
         }
-      } else if (view === 'deals' && fetchedItems.length === 0 && !isLoading && !error) {
-        // No items for deals, no AI ranking needed, no specific toast here.
-        // "No deals found" message handled by render logic.
+      } else if (view === 'deals' && fetchedItems.length === 0) {
+        // No items for deals, no AI ranking needed.
       }
       // For auctions, no AI ranking is done, and they are sorted by API (itemEndDate).
 
@@ -150,7 +135,7 @@ export default function HomePage() {
           } else if (e.message.includes("Failed to fetch from eBay Browse API")) {
             displayMessage = `Error fetching from eBay for "${finalQueryForEbay}". Check query or eBay status.`;
           } else {
-            displayMessage = e.message; 
+            displayMessage = e.message; // Use the error message directly if it's specific enough
           }
       }
       setError(displayMessage);
@@ -158,7 +143,7 @@ export default function HomePage() {
       setDisplayedItems([]);
     } finally {
       setIsLoading(false);
-      setIsRanking(false);
+      setIsRanking(false); // Ensure isRanking is false even if AI part was skipped or errored early
     }
     
     // This needs to be outside the try/catch/finally for setIsLoading to correctly set allItems
@@ -167,13 +152,46 @@ export default function HomePage() {
     setDisplayedItems(fetchedItems.slice(0, ITEMS_PER_PAGE));
     setVisibleItemCount(ITEMS_PER_PAGE);
 
-  }, [toast, mapToAIDeal]); 
+    // Toast notifications after all operations
+    if (!isLoading && !isRanking) { // Ensure loading states are false before showing toast
+        if (error) {
+            // Error toast is handled by the Alert component primarily
+        } else if (view === 'deals' && fetchedItems.length > 0) {
+            if (aiRankedSuccessfully) {
+                toast({
+                    title: isCuratedHomepage ? "Curated Deals: AI Ranked" : "Deals: AI Ranked",
+                    description: isCuratedHomepage 
+                        ? "Displaying AI-ranked curated deals." 
+                        : "Items intelligently ranked by AI.",
+                });
+            } else if (rankErrorOccurred) {
+                 toast({
+                    title: "AI Ranking Error, Sorted by Discount",
+                    description: "Displaying deals sorted by highest discount. AI service might be unavailable.",
+                    variant: "destructive",
+                });
+            } else { // AI not successful or not applicable, but deals exist
+                 toast({
+                    title: "Deals Sorted by Discount",
+                    description: "Displaying deals sorted by highest discount.",
+                    variant: "default",
+                });
+            }
+        } else if (view === 'auctions' && fetchedItems.length > 0) {
+            toast({
+                title: "Auctions Loaded",
+                description: `Displaying auctions related to "${finalQueryForEbay}".`,
+            });
+        }
+        // No toast if no items are found and no error occurred (UI handles this)
+    }
+  }, [toast, mapToAIDeal]); // Dependencies of loadItems
 
   useEffect(() => {
      console.log(`[HomePage useEffect] Triggering loadItems. View: ${currentView}, Query: ${searchQuery}`);
      loadItems(currentView, searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, searchQuery]);
+  }, [currentView, searchQuery]); // loadItems is stable due to useCallback
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
@@ -181,7 +199,7 @@ export default function HomePage() {
 
   const handleViewChange = (view: 'deals' | 'auctions') => {
     setCurrentView(view);
-    setSearchQuery(''); 
+    setSearchQuery(''); // Clear search query when changing views for a fresh load
   };
 
   const handleLoadMore = () => {
