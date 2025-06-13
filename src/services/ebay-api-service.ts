@@ -4,8 +4,8 @@
 import type { BayBotItem } from '@/types';
 import {
   curatedHomepageSearchTerms,
-  GLOBAL_CURATED_DEALS_REQUEST_MARKER,
-  GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER,
+  // GLOBAL_CURATED_DEALS_REQUEST_MARKER, // No longer used directly by fetchItems
+  // GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER, // No longer used directly by fetchItems
   STANDARD_CACHE_TTL_MS,
   GLOBAL_CURATED_CACHE_TTL_MS,
   EXCLUSION_KEYWORDS,
@@ -150,19 +150,16 @@ function getHighResolutionImageUrl(originalUrl?: string): string {
 function transformBrowseItem(
   browseItem: BrowseApiItemSummary,
   itemTypeFromFilter: 'deal' | 'auction',
-  keywordsForApi: string
+  keywordsUsedForApi: string // Renamed for clarity
 ): BayBotItem | null {
   try {
     const id = browseItem.itemId;
     const title = browseItem.title.trim();
     const lowerTitle = title.toLowerCase();
-    const lowerKeywords = keywordsForApi.toLowerCase();
+    const lowerKeywords = keywordsUsedForApi.toLowerCase();
 
-    // Exclusion keyword check
     for (const exclusionKeyword of EXCLUSION_KEYWORDS) {
       if (lowerTitle.includes(exclusionKeyword)) {
-        // If exclusion keyword is part of the search query, it's allowed.
-        // Example: user searches for "iphone box only"
         let isExclusionInQuery = false;
         const queryWords = lowerKeywords.split(' ');
         const exclusionWords = exclusionKeyword.split(' ');
@@ -171,7 +168,7 @@ function transformBrowseItem(
         }
 
         if (!isExclusionInQuery) {
-          console.log(`[eBay Service Transform] Excluding item "${title}" due to keyword "${exclusionKeyword}" not being part of search query "${keywordsForApi}".`);
+          console.log(`[eBay Service Transform] Excluding item "${title}" due to keyword "${exclusionKeyword}" not being part of search query "${keywordsUsedForApi}".`);
           return null;
         }
       }
@@ -179,7 +176,7 @@ function transformBrowseItem(
 
     const sellerReputation = browseItem.seller?.feedbackPercentage
       ? parseFloat(browseItem.seller.feedbackPercentage)
-      : 0; // Default to 0 if not available, to be filtered
+      : 0;
 
     if (sellerReputation < MIN_SELLER_REPUTATION_THRESHOLD) {
         console.log(`[eBay Service Transform] Excluding item "${title}" due to low seller reputation: ${sellerReputation}% (threshold: ${MIN_SELLER_REPUTATION_THRESHOLD}%)`);
@@ -216,21 +213,18 @@ function transformBrowseItem(
       if (browseItem.marketingPrice.originalPrice?.value) {
         originalPriceValue = parseFloat(browseItem.marketingPrice.originalPrice.value);
       }
-      // Use marketingPrice.discountPercentage only if it's a positive value, otherwise calculate.
       if (browseItem.marketingPrice.discountPercentage && parseFloat(browseItem.marketingPrice.discountPercentage) > 0) {
         discountPercentageValue = parseFloat(browseItem.marketingPrice.discountPercentage);
       }
     }
     
-    // Ensure discount is calculated if possible and not already set
     if (discountPercentageValue === undefined && originalPriceValue !== undefined && currentPriceValue < originalPriceValue) {
       discountPercentageValue = calculateDiscountPercentage(currentPriceValue, originalPriceValue);
     }
     discountPercentageValue = discountPercentageValue || 0;
 
-    // For deals, ensure there's a meaningful discount
     if (determinedItemType === 'deal' && discountPercentageValue < MIN_DEAL_DISCOUNT_THRESHOLD) {
-       if (!originalPriceValue || originalPriceValue <= currentPriceValue) { // Also check if original price is actually higher
+       if (!originalPriceValue || originalPriceValue <= currentPriceValue) {
         console.log(`[eBay Service Transform] Excluding deal "${title}" due to discount (${discountPercentageValue}%) below threshold (${MIN_DEAL_DISCOUNT_THRESHOLD}%) or no valid original price.`);
         return null;
        }
@@ -242,7 +236,7 @@ function transformBrowseItem(
 
     const bayBotItem: BayBotItem = {
       id,
-      type: determinedItemType, // Strictly use the type determined by filter and validation
+      type: determinedItemType,
       title,
       description,
       imageUrl,
@@ -283,24 +277,15 @@ export async function getRandomPopularSearchTerm(): Promise<string> {
 
 
 export const fetchItems = async (
-  type: 'deal' | 'auction', 
-  queryIdentifier: string  
+  type: 'deal' | 'auction',
+  query: string, // This is the direct query string from the caller
+  isGlobalCuratedRequest: boolean = false
 ): Promise<BayBotItem[]> => {
-  const isGlobalCuratedRequest = queryIdentifier === GLOBAL_CURATED_DEALS_REQUEST_MARKER || queryIdentifier === GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER;
-  
-  let keywordsForApi: string;
-  let cacheKeySuffix: string;
+  const keywordsForApi = query; // Use the passed 'query' as the keywords for API and checks
 
-  if (isGlobalCuratedRequest) {
-    keywordsForApi = await getRandomPopularSearchTerm(); 
-    cacheKeySuffix = `${queryIdentifier}_${keywordsForApi}`; 
-    console.log(`[BayBot Fetch] Global curated request for type '${type}'. Using random term: "${keywordsForApi}" (derived from marker "${queryIdentifier}")`);
-  } else {
-    keywordsForApi = queryIdentifier;
-    cacheKeySuffix = queryIdentifier; 
-    console.log(`[BayBot Fetch] User search for type '${type}'. API query (q): "${keywordsForApi}"`);
-  }
-  
+  const cacheKeySuffix = keywordsForApi;
+  console.log(`[BayBot Fetch] Type: '${type}'. API Query: "${keywordsForApi}". Global Curated: ${isGlobalCuratedRequest}`);
+
   const cacheKey = `browse:${type}:${cacheKeySuffix}`;
   const cacheTTL = isGlobalCuratedRequest ? GLOBAL_CURATED_CACHE_TTL_MS : STANDARD_CACHE_TTL_MS;
 
@@ -317,14 +302,14 @@ export const fetchItems = async (
   console.log(`[Cache MISS] Fetching items. Type: "${type}", API Query: "${keywordsForApi}", Global Curated: ${isGlobalCuratedRequest}`);
 
   if (!keywordsForApi || keywordsForApi.trim() === '') {
-      console.warn(`[BayBot Fetch] 'keywordsForApi' resolved to an empty string for type "${type}", queryIdentifier "${queryIdentifier}". Returning empty array.`);
+      console.warn(`[BayBot Fetch] 'keywordsForApi' (derived from query) resolved to an empty string or was null/undefined for type "${type}". API Query attempted: "${keywordsForApi}". Returning empty array.`);
       return [];
   }
 
   const authToken = await getEbayAuthToken();
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search');
   browseApiUrl.searchParams.append('q', keywordsForApi);
-  browseApiUrl.searchParams.append('limit', '50'); 
+  browseApiUrl.searchParams.append('limit', '50');
   browseApiUrl.searchParams.append('offset', '0');
 
   let filterOptions: string[] = ['itemLocationCountry:GB'];
@@ -336,19 +321,19 @@ export const fetchItems = async (
     console.log(`[BayBot Fetch Logic] Applying AUCTION specific parameters.`);
     filterOptions.push('buyingOptions:{AUCTION}');
     sortOption = 'endingSoonest';
-  } else { 
+  } else {
     console.log(`[BayBot Fetch Logic] Applying DEAL specific parameters.`);
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
     filterOptions.push('priceCurrency:GBP');
-    filterOptions.push('conditionIds:{1000|2000|2500|3000}'); 
-    
+    filterOptions.push('conditionIds:{1000|2000|2500|3000}');
+
     if (isGlobalCuratedRequest) {
-      filterOptions.push('price:[20..]'); 
-      sortOption = null; 
+      filterOptions.push('price:[20..]');
+      sortOption = null;
       console.log(`[BayBot Fetch Logic] Global Curated Deal: Price filter [20..], No server sort by API (will sort post-fetch).`);
-    } else { 
-      filterOptions.push('price:[1..]'); // For user search, allow lower prices but AI will help qualify
-      sortOption = 'price'; // Default API sort for user search deals, will be re-sorted post-fetch
+    } else {
+      filterOptions.push('price:[1..]');
+      sortOption = 'price';
       console.log(`[BayBot Fetch Logic] User Searched Deal: Price filter [1..], API Sort by 'price'.`);
     }
   }
@@ -414,31 +399,22 @@ export const fetchItems = async (
 
     console.log(`[eBay Service Response] Transformed ${transformedItems.length} items after initial filtering for query "${keywordsForApi}".`);
 
-    // Server-side sorting for deals AFTER initial fetch and transformation
     if (type === 'deal') {
         if (isGlobalCuratedRequest) {
-            // For global curated deals, sort primarily by discount percentage
             transformedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
             console.log(`[eBay Service Sort] Sorted ${transformedItems.length} global curated deals by discount percentage.`);
         } else {
-            // For user-searched deals, sort by discount, then seller reputation, then price
             transformedItems.sort((a, b) => {
-                // Primary: Discount Percentage (descending)
                 const discountDiff = (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0);
                 if (discountDiff !== 0) return discountDiff;
-                // Secondary: Seller Reputation (descending)
                 const reputationDiff = (b.sellerReputation ?? 0) - (a.sellerReputation ?? 0);
                 if (reputationDiff !== 0) return reputationDiff;
-                // Tertiary: Price (ascending)
                 return (a.price ?? Infinity) - (b.price ?? Infinity);
             });
             console.log(`[eBay Service Sort] Sorted ${transformedItems.length} user-searched deals by discount -> reputation -> price.`);
         }
     }
-    // Auctions are already sorted by endingSoonest from the API, additional server sort not typically needed beyond filtering.
 
-
-    // Final type check (redundant due to transformBrowseItem, but good for safety)
     const finalItems = transformedItems.filter(item => item.type === type);
     if (finalItems.length !== transformedItems.length) {
       console.warn(`[eBay Service Type Filter] Final type filter removed ${transformedItems.length - finalItems.length} items that did not match requested type '${type}'. This should ideally not happen if transformBrowseItem is correct.`);
@@ -460,3 +436,6 @@ export const fetchItems = async (
     throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}.`);
   }
 };
+
+
+    
