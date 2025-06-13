@@ -27,22 +27,19 @@ export default function RootLayout({
                 function getInitialTheme() {
                   try {
                     const storedTheme = localStorage.getItem('theme');
-                    // Validate that storedTheme is one of the expected values
                     if (storedTheme === 'light' || storedTheme === 'dark') {
                       return storedTheme;
                     }
                   } catch (e) {
-                    // localStorage is not available or other error
                     console.warn('Could not access localStorage for theme:', e);
                   }
-                  // Fallback to system preference if no valid theme is stored or localStorage fails
                   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
                 }
                 const theme = getInitialTheme();
                 if (theme === 'dark') {
                   document.documentElement.classList.add('dark');
                   document.documentElement.classList.remove('light');
-                } else { // theme === 'light'
+                } else {
                   document.documentElement.classList.remove('dark');
                   document.documentElement.classList.add('light');
                 }

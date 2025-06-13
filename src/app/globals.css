@@ -20,14 +20,14 @@ body {
     --secondary-hsl: 210 40% 96.1%;
     --secondary-foreground-hsl: 222.2 47.4% 11.2%;
     --muted-hsl: 210 40% 96.1%;
-    --muted-foreground-hsl: 222.2 84% 4.9%;
+    --muted-foreground-hsl: 222.2 84% 4.9%; /* Changed from 215.4 16.3% 46.9% */
     --accent-hsl: 210 40% 96.1%;
     --accent-foreground-hsl: 222.2 47.4% 11.2%;
     --destructive-hsl: 0 84.2% 60.2%;
     --destructive-foreground-hsl: 0 0% 98%;
-    --border-hsl: 210 40% 91.4%;
-    --input-hsl: 210 40% 91.4%;
-    --ring-hsl: 222.2 47.4% 11.2%;
+    --border-hsl: 210 40% 91.4%; /* Changed from 214.3 31.8% 91.4% */
+    --input-hsl: 210 40% 91.4%;  /* Changed from 214.3 31.8% 91.4% */
+    --ring-hsl: 222.2 47.4% 11.2%; /* Changed from 215 20.2% 65.1% */
 
     --background: hsl(var(--background-hsl));
     --foreground: hsl(var(--foreground-hsl));
@@ -67,41 +67,43 @@ body {
   }
 
   .dark {
-    /* PRD Color Guidelines:
-        - Background color: Very dark blue (#020817) -> hsl(224, 93%, 5.3%)
-        - Primary color (main text): Light gray (#f8fafc) -> hsl(210, 40%, 98%)
-        - Accent color (secondary elements): Dark gray-blue (#1e293b) -> hsl(215, 38%, 17%)
-        - Card color: (#0f172a) -> hsl(215, 41%, 11%)
-    */
-    --background-hsl: 224 93% 5.3%;   /* #020817 */
-    --foreground-hsl: 210 40% 98%;     /* #f8fafc */
+    /* PRD Dark Theme Colors (BayBot) */
+    /* Background color: Very dark blue (#020817) -> hsl(224, 93%, 5.3%) approx 222.9 83.3% 4.9% */
+    --background-hsl: 222.9 83.3% 4.9%; /* #020817 */
+    /* Primary color (main text): Light gray (#f8fafc) -> hsl(210, 40%, 98%) */
+    --foreground-hsl: 210 40% 98%;    /* #f8fafc */
 
-    --card-hsl: 215 41% 11%;          /* #0f172a */
-    --card-foreground-hsl: 210 40% 98%; /* #f8fafc */
+    /* Card color: Darker blue-gray (#0f172a) -> hsl(215.3, 41.3%, 11.2%) */
+    --card-hsl: 215.3 41.3% 11.2%;      /* #0f172a */
+    --card-foreground-hsl: 210 40% 98%;/* #f8fafc */
 
-    --popover-hsl: 215 41% 11%;        /* Using card color for popovers, or 224 93% 5.3% to match background */
+    /* Popover color: Same as card for consistency */
+    --popover-hsl: 215.3 41.3% 11.2%;
     --popover-foreground-hsl: 210 40% 98%;
 
-    /* Primary interactive elements in dark mode: Light to contrast with dark background */
-    --primary-hsl: 210 40% 98%;        /* #f8fafc (Light Gray) */
-    --primary-foreground-hsl: 224 93% 5.3%; /* #020817 (Very Dark Blue text on primary elements) */
+    /* Primary interactive elements (buttons, active tabs) */
+    --primary-hsl: 210 40% 98%;        /* #f8fafc (Light Gray for primary UI elements) */
+    --primary-foreground-hsl: 222.9 83.3% 4.9%; /* #020817 (Dark text on light primary elements) */
+    
+    /* Secondary elements (inactive tabs, subdued backgrounds) */
+    /* Accent color (secondary elements): Dark gray-blue (#1e293b) -> hsl(215.3, 38.5%, 17.5%) */
+    --secondary-hsl: 215.3 38.5% 17.5%; /* #1e293b */
+    --secondary-foreground-hsl: 210 40% 98%; /* #f8fafc (Light text on secondary elements) */
 
-    /* Secondary/Accent elements in dark mode */
-    --secondary-hsl: 215 38% 17%;      /* #1e293b */
-    --secondary-foreground-hsl: 210 40% 98%;
+    /* Muted elements (borders, placeholders, less important text) */
+    --muted-hsl: 215.3 38.5% 17.5%;      /* Using #1e293b for general muted backgrounds/borders */
+    --muted-foreground-hsl: 210 40% 60%;/* Slightly dimmer light gray for muted text #94a3b8 */
 
-    --muted-hsl: 215 38% 17%;          /* #1e293b (Same as secondary for cohesion) */
-    --muted-foreground-hsl: 210 40% 60%; /* Muted text, less prominent light gray */
-
-    --accent-hsl: 215 38% 22%;         /* Slightly lighter version of #1e293b for distinct accent if needed */
+    /* Accent (can be same as secondary or a slightly different shade if needed for highlights) */
+    --accent-hsl: 215.3 38.5% 22%; /* Slightly lighter than secondary for subtle accents #28354b */
     --accent-foreground-hsl: 210 40% 98%;
 
-    --destructive-hsl: 0 62.8% 30.6%;
-    --destructive-foreground-hsl: 0 0% 98%;
+    --destructive-hsl: 0 72.2% 50.6%; /* #e11d48 */
+    --destructive-foreground-hsl: 0 0% 98%; /* #f8fafc */
 
-    --border-hsl: 215 38% 17%;         /* #1e293b */
-    --input-hsl: 215 38% 17%;          /* #1e293b */
-    --ring-hsl: 210 40% 98%;           /* #f8fafc (Light Gray for focus rings) */
+    --border-hsl: 215.3 38.5% 17.5%;   /* #1e293b for borders */
+    --input-hsl: 215.3 38.5% 17.5%;    /* #1e293b for input backgrounds */
+    --ring-hsl: 210 40% 98%;           /* #f8fafc Light Gray for focus rings for visibility */
 
     --background: hsl(var(--background-hsl));
     --foreground: hsl(var(--foreground-hsl));
