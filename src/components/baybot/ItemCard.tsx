@@ -1,5 +1,6 @@
 
 import Image from 'next/image';
+import React from 'react'; // Import React
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,7 @@ interface ItemCardProps {
   onAnalyze: (item: BayBotItem) => void;
 }
 
-export const ItemCard: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
+const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
   return (
     <div className="flex flex-col overflow-hidden h-full glass-card transition-all duration-300 ease-out hover:shadow-[0_0_35px_3px_hsla(var(--primary-hsl),0.25)] hover:-translate-y-1.5">
       <CardHeader className="p-0 relative">
@@ -23,7 +24,7 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
             className="object-cover rounded-t-lg" 
             data-ai-hint={item['data-ai-hint'] || item.title.toLowerCase().split(' ').slice(0,2).join(' ')}
             unoptimized={item.imageUrl?.includes('ebayimg.com')} // Avoid Next.js optimization for external dynamic eBay images
-            priority={false} // Standard priority
+            priority={false} // Standard priority for cards in a grid
           />
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
             <Badge variant="destructive" className="absolute top-3 right-3 shadow-lg bg-destructive/80 backdrop-blur-sm text-destructive-foreground">
@@ -70,3 +71,6 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
     </div>
   );
 };
+
+export const ItemCard = React.memo(ItemCardComponent);
+ItemCard.displayName = 'ItemCard';

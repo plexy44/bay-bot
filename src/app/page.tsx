@@ -3,9 +3,10 @@
 
 import type React from 'react';
 import { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { AppHeader } from '@/components/baybot/AppHeader';
 import { ItemCard } from '@/components/baybot/ItemCard';
-import { AnalysisModal } from '@/components/baybot/AnalysisModal';
+// import { AnalysisModal } from '@/components/baybot/AnalysisModal'; // Dynamically imported
 import { ItemGridLoadingSkeleton } from '@/components/baybot/LoadingSkeleton';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -16,8 +17,12 @@ import { rankDeals as rankDealsAI, type Deal as AIDeal, type RankDealsInput } fr
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 
-
 const ITEMS_PER_PAGE = 8;
+
+const AnalysisModal = dynamic(() => 
+  import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
+  { ssr: false, loading: () => <ItemGridLoadingSkeleton count={1} /> } 
+);
 
 export default function HomePage() {
   const [currentView, setCurrentView] = useState<'deals' | 'auctions'>('deals');
@@ -148,7 +153,7 @@ export default function HomePage() {
   useEffect(() => {
      loadItems(currentView, searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, searchQuery]);
+  }, [currentView, searchQuery, loadItems]);
 
 
   const handleSearch = (query: string) => {
@@ -226,11 +231,14 @@ export default function HomePage() {
           <ThemeToggle />
         </div>
       </footer>
-      <AnalysisModal
-        item={selectedItemForAnalysis}
-        isOpen={isAnalysisModalOpen}
-        onClose={() => setIsAnalysisModalOpen(false)}
-      />
+      {isAnalysisModalOpen && selectedItemForAnalysis && (
+        <AnalysisModal
+          item={selectedItemForAnalysis}
+          isOpen={isAnalysisModalOpen}
+          onClose={() => setIsAnalysisModalOpen(false)}
+        />
+      )}
     </div>
   );
 }
+
