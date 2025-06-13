@@ -84,3 +84,4 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
     </header>
   );
 };
+
