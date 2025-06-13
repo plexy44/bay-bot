@@ -6,46 +6,44 @@ import { Button } from "@/components/ui/button";
 import { Search } from "lucide-react";
 import { getRandomPopularSearchTerm } from '@/services/ebay-api-service';
 
-
 interface AppHeaderProps {
   currentView: 'deals' | 'auctions';
   onViewChange: (view: 'deals' | 'auctions') => void;
-  onSearch: (query: string) => void;
+  onSearch: (query: string) => void; // Retained for explicit search trigger if needed elsewhere
   searchQuery: string;
-  setSearchQuery: (query: string) => void; 
+  setSearchQuery: (query: string) => void;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange, onSearch, searchQuery, setSearchQuery }) => {
-  
+
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSearch(searchQuery);
+    onSearch(searchQuery); // Prop function from page.tsx, which calls setSearchQuery
   };
 
   const handleLogoClick = async () => {
     const randomTerm = await getRandomPopularSearchTerm();
-    setSearchQuery(randomTerm); 
-
     if (currentView !== 'deals') {
-      onViewChange('deals'); 
-    } else {
-      onSearch(randomTerm); 
+      onViewChange('deals'); // This will also clear searchQuery in page.tsx's handleViewChange
     }
+    // setSearchQuery will trigger useEffect in page.tsx if currentView is already 'deals'
+    // or if currentView becomes 'deals' and then searchQuery is set.
+    setSearchQuery(randomTerm);
   };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/60 backdrop-blur-lg supports-[backdrop-filter]:bg-background/40">
       <div className="container flex h-16 max-w-screen-2xl items-center">
-        <div className="ml-4 mr-4 flex items-center md:ml-8"> {/* Increased ml for more space */}
-          <button 
-            onClick={handleLogoClick} 
+        <div className="ml-4 mr-4 flex items-center md:ml-8">
+          <button
+            onClick={handleLogoClick}
             className="text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
             aria-label="BayBot - Search random deals"
           >
             BayBot
           </button>
         </div>
-        
+
         <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
           <div className="w-full flex-1 md:w-auto md:flex-none">
             <form onSubmit={handleSearchSubmit} className="flex w-full md:w-80 items-center space-x-2">
@@ -62,7 +60,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
               </Button>
             </form>
           </div>
-          
+
           <nav className="flex items-center">
              <Tabs value={currentView} onValueChange={(value) => onViewChange(value as 'deals' | 'auctions')} className="hidden md:block">
               <TabsList className="bg-muted/50 backdrop-blur-sm">
@@ -84,4 +82,4 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
     </header>
   );
 };
-
+    

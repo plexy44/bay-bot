@@ -18,9 +18,9 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 
 const ITEMS_PER_PAGE = 8;
 
-const AnalysisModal = dynamic(() => 
+const AnalysisModal = dynamic(() =>
   import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
-  { ssr: false, loading: () => <ItemGridLoadingSkeleton count={1} /> } 
+  { ssr: false, loading: () => <ItemGridLoadingSkeleton count={1} /> }
 );
 
 export default function HomePage() {
@@ -50,6 +50,7 @@ export default function HomePage() {
 
   const loadItems = useCallback(async (view: 'deals' | 'auctions', queryFromSearch: string) => {
     setIsLoading(true);
+    setIsRanking(false); // Reset ranking state at the beginning
     setError(null);
     setIsAuthError(false);
     let fetchedItems: BayBotItem[] = [];
@@ -61,50 +62,62 @@ export default function HomePage() {
     try {
       if (isCuratedHomepage) {
         finalQueryForEbay = await getBatchedCuratedKeywordsQuery();
+        console.log(`[HomePage] Curated homepage. Batched query: ${finalQueryForEbay}`);
       } else if (view === 'auctions' && !queryFromSearch) {
         finalQueryForEbay = "collectible auction"; // Default for auctions if no query
-      } else if (!finalQueryForEbay) {
-        // Fallback if query is somehow still empty (e.g. deals view with empty search after interactions)
-        finalQueryForEbay = await getRandomPopularSearchTerm(); 
+        console.log(`[HomePage] Auctions view, no query. Using default: ${finalQueryForEbay}`);
+      } else if (!finalQueryForEbay && view === 'deals') {
+        // Fallback for deals view if query is somehow still empty
+        finalQueryForEbay = await getBatchedCuratedKeywordsQuery();
+        console.log(`[HomePage] Deals view, query empty. Fallback to batched: ${finalQueryForEbay}`);
+      } else if (!finalQueryForEbay && view === 'auctions') {
+        // Fallback for auctions view if query is somehow still empty
+        finalQueryForEbay = "collectible auction";
+        console.log(`[HomePage] Auctions view, query empty. Fallback to default auction: ${finalQueryForEbay}`);
       }
       
+      // Final safety net if query is still empty
+      if (!finalQueryForEbay) {
+        finalQueryForEbay = await getRandomPopularSearchTerm();
+        console.warn(`[HomePage] finalQueryForEbay was still empty. Using random popular term: ${finalQueryForEbay}`);
+      }
+
       fetchedItems = await fetchItems(view, finalQueryForEbay, isCuratedHomepage);
-      
-      if ((finalQueryForEbay || isCuratedHomepage) && fetchedItems.length > 0 && view === 'deals') {
+
+      if (fetchedItems.length > 0 && view === 'deals') { // AI ranking only for deals with items
         setIsRanking(true);
         const dealsForAI = fetchedItems.map(mapToAIDeal);
         try {
-          // Use finalQueryForEbay (which is the batched query for curated) as context for AI
           const aiRankerInput: RankDealsInput = {
             deals: dealsForAI,
-            query: finalQueryForEbay, 
+            query: finalQueryForEbay,
           };
           const rankedAIDeals = await rankDealsAI(aiRankerInput);
-          
-          if (rankedAIDeals !== dealsForAI && rankedAIDeals.length === dealsForAI.length) { 
+
+          if (rankedAIDeals !== dealsForAI && rankedAIDeals.length === dealsForAI.length) {
             const rankedMap = new Map(rankedAIDeals.map(d => [d.id, d]));
             fetchedItems = fetchedItems
-              .filter(item => rankedMap.has(item.id)) 
+              .filter(item => rankedMap.has(item.id))
               .sort((a, b) => {
-                  const indexA = rankedAIDeals.findIndex(d => d.id === a.id);
-                  const indexB = rankedAIDeals.findIndex(d => d.id === b.id);
-                  if (indexA === -1 && indexB === -1) return 0;
-                  if (indexA === -1) return 1; 
-                  if (indexB === -1) return -1;
-                  return indexA - indexB;
+                const indexA = rankedAIDeals.findIndex(d => d.id === a.id);
+                const indexB = rankedAIDeals.findIndex(d => d.id === b.id);
+                if (indexA === -1 && indexB === -1) return 0;
+                if (indexA === -1) return 1;
+                if (indexB === -1) return -1;
+                return indexA - indexB;
               });
             aiRankedSuccessfully = true;
-          } 
+          }
         } catch (aiRankError) {
           console.error("AI Ranking failed:", aiRankError);
           rankErrorOccurred = true;
         } finally {
-          setIsRanking(false);
+          setIsRanking(false); // AI ranking attempt is complete
         }
       }
-      
+
+      // Always sort deals by discount percentage after AI ranking (or if AI ranking failed/skipped)
       if (view === 'deals') {
-        // Always sort deals by discount percentage after AI ranking (or if AI ranking failed/skipped)
         fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
       }
 
@@ -112,7 +125,8 @@ export default function HomePage() {
       setDisplayedItems(fetchedItems.slice(0, ITEMS_PER_PAGE));
       setVisibleItemCount(ITEMS_PER_PAGE);
 
-      if (view === 'deals' && !isLoading && !isRanking && fetchedItems.length > 0) {
+      // Toast logic after all operations for the current loadItems call
+      if (view === 'deals' && fetchedItems.length > 0) {
         if (rankErrorOccurred) {
           toast({
             title: "AI Ranking Error, Sorted by Discount",
@@ -122,17 +136,17 @@ export default function HomePage() {
         } else if (aiRankedSuccessfully) {
           toast({
             title: isCuratedHomepage ? "Curated Deals: AI Refined & Discount Sorted" : "Deals: AI Refined & Discount Sorted",
-            description: isCuratedHomepage 
+            description: isCuratedHomepage
               ? "Displaying AI-enhanced curated deals, sorted by highest discount."
               : "Items refined by AI, now sorted by highest discount.",
           });
-        } else if (queryFromSearch || isCuratedHomepage) { 
+        } else if (queryFromSearch || isCuratedHomepage) {
           toast({
             title: "Deals Sorted by Discount",
             description: "Displaying deals sorted by highest discount. AI ranking provided no changes or was not applicable.",
             variant: "default",
           });
-        } else { 
+        } else {
            toast({
             title: "Deals Sorted by Discount",
             description: "Displaying deals sorted by highest discount.",
@@ -142,40 +156,42 @@ export default function HomePage() {
 
     } catch (e: any) {
       console.error("Failed to load items:", e);
-      const errorMessage = e.message || `Failed to load ${view}. Please try again.`;
-      if (errorMessage.includes("invalid_client")) {
-        setError("Critical eBay API Authentication Failure: The error 'invalid_client' indicates your EBAY_APP_ID or EBAY_CERT_ID in the .env file is incorrect or lacks production API access. Please verify these credentials and restart your application. Consult server logs for the exact eBay response.");
-        setIsAuthError(true);
-      } else if (errorMessage.includes("OAuth") || errorMessage.includes("authenticate with eBay API")) {
-        setError("eBay API Authentication Failed. Please check your API credentials in the .env file and ensure they have production access. See server logs for more details.");
-        setIsAuthError(true);
-      } else {
-        setError(`Failed to load ${view}. Please check your connection or API setup.`);
+      let displayMessage = `Failed to load ${view}. Please try again.`;
+      if (typeof e.message === 'string') {
+          if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
+            displayMessage = "Critical eBay API Authentication Failure: Please verify EBAY_APP_ID/EBAY_CERT_ID in .env and ensure production API access. Consult server logs.";
+            setIsAuthError(true);
+          } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
+            displayMessage = "eBay API Authentication Failed. Check credentials and production access. See server logs.";
+            setIsAuthError(true);
+          } else if (e.message.includes("Failed to fetch from eBay Browse API")) {
+            displayMessage = `Error fetching from eBay for "${finalQueryForEbay}". Check query or eBay status.`;
+          } else {
+            displayMessage = e.message; // Use the specific error message from the exception
+          }
       }
+      setError(displayMessage);
       setAllItems([]);
       setDisplayedItems([]);
     } finally {
       setIsLoading(false);
+      setIsRanking(false); // Ensure this is also false in the final finally block
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast, mapToAIDeal]); // Removed loadItems from dependencies to avoid infinite loop
-  
+  }, [toast, mapToAIDeal]); // Removed view and queryFromSearch from here as they are parameters
+
   useEffect(() => {
+     console.log(`[HomePage useEffect] Triggering loadItems. View: ${currentView}, Query: ${searchQuery}`);
      loadItems(currentView, searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, searchQuery]); // loadItems itself should not be a dependency here if it's defined with useCallback and its own deps are correct
-
+  }, [currentView, searchQuery]); // loadItems is stable due to useCallback
 
   const handleSearch = (query: string) => {
-    setSearchQuery(query); 
+    setSearchQuery(query);
   };
-  
+
   const handleViewChange = (view: 'deals' | 'auctions') => {
     setCurrentView(view);
-    // If switching to deals and search is empty, it will trigger curated load
-    // If switching to auctions and search is empty, loadItems handles default auction query
-    if (view === 'deals' && searchQuery) setSearchQuery(''); // Clear search when switching to deals tab to trigger curated if desired, or user can search again
-    else if (view === 'auctions' && searchQuery) setSearchQuery(''); // Clear search for auctions to get default broad auction list or user can search
+    setSearchQuery(''); // Always clear search query when changing view
   };
 
   const handleLoadMore = () => {
@@ -196,7 +212,7 @@ export default function HomePage() {
         onViewChange={handleViewChange}
         onSearch={handleSearch}
         searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery} 
+        setSearchQuery={setSearchQuery}
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
@@ -208,15 +224,15 @@ export default function HomePage() {
         )}
 
         {(isLoading || isRanking) && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
-        
+
         {!isLoading && !isRanking && displayedItems.length === 0 && !error && (
           <div className="text-center py-10">
             <Search className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
             <h2 className="text-2xl font-headline mb-2">No {currentView} found</h2>
             <p className="text-muted-foreground">
-              {searchQuery 
+              {searchQuery
                 ? `Try adjusting your search for "${searchQuery}".`
-                : (currentView === 'deals' ? `No curated deals found. Try a specific search or check back later.` : `No auctions found. Try a specific search or check back later.`)
+                : (currentView === 'deals' ? `No curated deals found. Try a different search or check back later.` : `No auctions found. Try a different search or check back later.`)
               }
             </p>
           </div>
@@ -255,3 +271,4 @@ export default function HomePage() {
     </div>
   );
 }
+    
