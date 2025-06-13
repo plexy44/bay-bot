@@ -60,15 +60,14 @@ export default function HomePage() {
         setIsRanking(true);
         const dealsForAI = fetchedItems.map(mapToAIDeal);
         try {
-          // For curated homepage, AI gets a generic context. Otherwise, it gets the user's query.
-          const aiContextQuery = query || (isCuratedHomepage ? "general top deals" : "");
+          const aiContextQuery = query || (isCuratedHomepage ? await getRandomPopularSearchTerm() : "general top deals");
           const aiRankerInput: RankDealsInput = {
             deals: dealsForAI,
             query: aiContextQuery, 
           };
           const rankedAIDeals = await rankDealsAI(aiRankerInput);
           
-          if (rankedAIDeals !== dealsForAI) { // AI successfully returned a NEW ranked list
+          if (rankedAIDeals !== dealsForAI && rankedAIDeals.length === dealsForAI.length) { 
             const rankedMap = new Map(rankedAIDeals.map(d => [d.id, d]));
             fetchedItems = fetchedItems
               .filter(item => rankedMap.has(item.id)) 
@@ -82,18 +81,14 @@ export default function HomePage() {
               });
             aiRankedSuccessfully = true;
           } 
-          // If rankedAIDeals === dealsForAI, aiRankedSuccessfully remains false.
-          // This means AI considered the original order optimal or had an internal fallback.
         } catch (aiRankError) {
           console.error("AI Ranking failed:", aiRankError);
           rankErrorOccurred = true;
-          // aiRankedSuccessfully remains false.
         } finally {
           setIsRanking(false);
         }
       }
       
-      // Final Sorting for DEALS view: always sort by discount after AI attempt (if any)
       if (view === 'deals') {
         fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
       }
@@ -102,12 +97,11 @@ export default function HomePage() {
       setDisplayedItems(fetchedItems.slice(0, ITEMS_PER_PAGE));
       setVisibleItemCount(ITEMS_PER_PAGE);
 
-      // Consolidated Toast logic
       if (view === 'deals' && !isLoading && !isRanking && fetchedItems.length > 0) {
         if (rankErrorOccurred) {
           toast({
-            title: "AI Ranking Error",
-            description: "Displaying deals sorted by discount. AI service might be unavailable.",
+            title: "AI Ranking Error, Sorted by Discount",
+            description: "Displaying deals sorted by highest discount. AI service might be unavailable.",
             variant: "destructive",
           });
         } else if (aiRankedSuccessfully) {
@@ -117,13 +111,13 @@ export default function HomePage() {
               ? "Displaying AI-enhanced deals, sorted by highest discount."
               : "Items refined by AI, now sorted by highest discount.",
           });
-        } else if (query || isCuratedHomepage) { // AI was attempted but didn't change order / wasn't "successful" by criteria
+        } else if (query || isCuratedHomepage) { 
           toast({
             title: "Deals Sorted by Discount",
             description: "Displaying deals sorted by highest discount. AI ranking provided no changes or was not applicable.",
             variant: "default",
           });
-        } else { // No query, no curated homepage context for AI (e.g. direct navigation to deals, though rare)
+        } else { 
            toast({
             title: "Deals Sorted by Discount",
             description: "Displaying deals sorted by highest discount.",
@@ -154,7 +148,7 @@ export default function HomePage() {
   useEffect(() => {
      loadItems(currentView, searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, searchQuery, loadItems]);
+  }, [currentView, searchQuery]);
 
 
   const handleSearch = (query: string) => {
@@ -163,8 +157,6 @@ export default function HomePage() {
   
   const handleViewChange = (view: 'deals' | 'auctions') => {
     setCurrentView(view);
-    // Clear search query when changing view to ensure curated list or fresh auction view
-    // setSearchQuery(''); // Optional: decide if search query should persist across view changes
   };
 
   const handleLoadMore = () => {
@@ -228,7 +220,7 @@ export default function HomePage() {
           </>
         )}
       </main>
-      <footer className="text-center py-6 border-t border-border/40 text-sm text-muted-foreground">
+      <footer className="text-center py-6 border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
         <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
           <p>&copy; {new Date().getFullYear()} BayBot. All rights reserved.</p>
           <ThemeToggle />

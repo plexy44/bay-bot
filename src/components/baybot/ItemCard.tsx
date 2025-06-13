@@ -13,7 +13,7 @@ interface ItemCardProps {
 
 export const ItemCard: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
   return (
-    <Card className="flex flex-col overflow-hidden h-full glass-card transition-all duration-300 ease-out hover:shadow-[0_0_35px_3px_hsla(var(--primary-hsl),0.25)] hover:-translate-y-1.5">
+    <div className="flex flex-col overflow-hidden h-full glass-card transition-all duration-300 ease-out hover:shadow-[0_0_35px_3px_hsla(var(--primary-hsl),0.25)] hover:-translate-y-1.5">
       <CardHeader className="p-0 relative">
         <div className="aspect-video relative">
           <Image
@@ -67,6 +67,6 @@ export const ItemCard: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
           {item.type === 'deal' ? 'Analyze Deal' : 'Analysis N/A'}
         </Button>
       </CardFooter>
-    </Card>
+    </div>
   );
 };

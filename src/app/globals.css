@@ -146,11 +146,11 @@ body {
 }
 
 .glass-card {
-  @apply bg-card/60 backdrop-blur-xl border border-border/30 shadow-2xl shadow-primary/5;
+  @apply bg-card/60 backdrop-blur-xl border border-border/30 shadow-2xl shadow-primary/5 rounded-lg;
 }
 
 .glass-popover {
-  @apply bg-popover/60 backdrop-blur-lg border border-border/30 shadow-xl shadow-primary/5;
+  @apply bg-popover/70 backdrop-blur-lg border border-border/40 shadow-xl shadow-primary/10 rounded-lg;
 }
 
 .baybot-tabs-trigger {
