@@ -63,10 +63,11 @@ export default function HomePage() { // Renamed from CuratedDealsPage
     // This page (HomePage at /) is always for deals
     const fetchType = 'deals'; 
     const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_DEALS_REQUEST_MARKER : queryFromSearchState;
+    console.log(`[HomePage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
     try {
       let fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
-      console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
+      console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items from fetchItems for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
 
       if (fetchedItems.length > 0) {
         // AI Ranking attempt for both global curated and user-searched deals on this page
@@ -81,22 +82,23 @@ export default function HomePage() { // Renamed from CuratedDealsPage
 
           if (rankedOutputFromAI !== dealsInputForAI && rankedOutputFromAI.length === dealsInputForAI.length) {
             const orderMap = new Map(rankedOutputFromAI.map((deal, index) => [deal.id, index]));
-            fetchedItems.sort((a, b) => {
+            // Create a new sorted array from the original fetchedItems to preserve BayBotItem structure
+            const sortedFetchedItems = [...fetchedItems].sort((a, b) => {
               const posA = orderMap.get(a.id);
               const posB = orderMap.get(b.id);
-              if (posA === undefined && posB === undefined) return 0;
-              if (posA === undefined) return 1; // Should not happen if AI returns all IDs
-              if (posB === undefined) return -1; // Should not happen
+              if (posA === undefined && posB === undefined) return 0; // Should not happen if all IDs are in map
+              if (posA === undefined) return 1; 
+              if (posB === undefined) return -1;
               return posA - posB;
             });
-            processedItems = fetchedItems;
+            processedItems = sortedFetchedItems;
             toastMessage = { title: isGlobalCuratedRequest ? "Curated Deals: AI Ranked" : "Deals: AI Ranked", description: isGlobalCuratedRequest ? "Displaying AI-ranked global deals." : `Displaying AI-ranked deals for "${queryFromSearchState}".` };
             console.log(`[HomePage loadItems] AI successfully ranked ${processedItems.length} deals. Context: ${aiQueryContext}.`);
           } else {
             // AI ranking didn't change order or failed to return a valid list, sort by discount
+            console.warn(`[HomePage loadItems] AI ranking issue or no change for context "${aiQueryContext}". Fallback: Sorting ${fetchedItems.length} deals by discount.`);
             processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
             toastMessage = { title: isGlobalCuratedRequest ? "Curated Deals: Sorted by Discount" : "Deals: Sorted by Discount", description: isGlobalCuratedRequest ? "Displaying global deals by discount." : `Displaying deals for "${queryFromSearchState}" by discount. AI ranking might have had no effect or issue.` };
-            console.log(`[HomePage loadItems] AI ranking not applied or no change. Sorted ${processedItems.length} deals by discount. Context: ${aiQueryContext}.`);
           }
         } catch (aiRankErrorCaught: any) {
           console.error("[HomePage loadItems] AI Ranking failed:", aiRankErrorCaught);
@@ -104,12 +106,14 @@ export default function HomePage() { // Renamed from CuratedDealsPage
           toastMessage = { title: isGlobalCuratedRequest ? "Curated Deals: AI Error, Sorted by Discount" : "Deals: AI Error, Sorted by Discount", description: "AI ranking failed. Displaying deals by discount.", variant: "destructive"};
         }
       } else {
+         // fetchedItems.length is 0
          processedItems = [];
-         if (queryFromSearchState) {
+         if (queryFromSearchState) { // User searched but no items
             toastMessage = { title: "No Deals Found", description: `No deals found for "${queryFromSearchState}".`};
-         } else {
+         } else { // Global curated but no items
             toastMessage = { title: "No Curated Deals", description: "No global curated deals found at this time."};
          }
+         console.log(`[HomePage loadItems] No items fetched or processed. isGlobalCuratedRequest: ${isGlobalCuratedRequest}, query: "${queryFromSearchState}"`);
       }
     } catch (e: any) {
       console.error(`[HomePage loadItems] Failed to load items. Query/Marker '${effectiveQueryForEbay}'. Error:`, e);
@@ -121,7 +125,7 @@ export default function HomePage() { // Renamed from CuratedDealsPage
         } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
           displayMessage = "eBay API Authentication Failed. Check credentials and server logs.";
           setIsAuthError(true);
-        } else if (e.message.includes("Failed to fetch from eBay Browse API")) {
+        } else if (e.message.includes("Failed to fetch from eBay Browse API") || e.message.includes("Failed to fetch eBay items")) {
           displayMessage = `Error fetching from eBay for "${effectiveQueryForEbay}". Check query or eBay status. Server logs may have details.`;
         } else {
           displayMessage = e.message;
@@ -135,10 +139,12 @@ export default function HomePage() { // Renamed from CuratedDealsPage
       setVisibleItemCount(ITEMS_PER_PAGE);
       setIsLoading(false);
       setIsRanking(false);
-      console.log(`[HomePage loadItems] Finalizing. isLoading: false, isRanking: false.`);
+      console.log(`[HomePage loadItems] Finalizing. isLoading: false, isRanking: false. Displayed ${displayedItems.length} of ${processedItems.length} items.`);
       
       if (toastMessage && !error) {
         toast(toastMessage);
+      } else if (error && !isAuthError) { // Only show generic error toast if not auth error (auth error has its own Alert)
+        toast({title: "Error Loading Deals", description: "An unexpected error occurred.", variant: "destructive"});
       }
     }
   }, [toast, mapToAIDeal]);

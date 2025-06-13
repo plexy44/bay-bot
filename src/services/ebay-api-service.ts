@@ -169,8 +169,9 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
 
     const sellerReputation = browseItem.seller?.feedbackPercentage
       ? parseFloat(browseItem.seller.feedbackPercentage)
-      : 70;
+      : 70; // Default if not available
 
+    // Determine type based on buyingOptions, but prioritize the filter type if ambiguous
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
     const hasAuction = browseItem.buyingOptions?.includes('AUCTION');
     const hasFixedPrice = browseItem.buyingOptions?.includes('FIXED_PRICE');
@@ -180,8 +181,10 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
     } else if (hasAuction && !hasFixedPrice) {
         determinedItemType = 'auction';
     } else if (hasAuction && hasFixedPrice) {
+        // If both, trust the type passed from the page context (deals page wants deals)
         determinedItemType = itemTypeFromFilter;
     }
+
 
     const description = browseItem.shortDescription || title;
     const itemLink = browseItem.itemAffiliateWebUrl || browseItem.itemWebUrl;
@@ -220,6 +223,8 @@ export async function getGlobalCuratedKeywordsApiQueryString(): Promise<string> 
     console.warn("[BayBot getGlobalCuratedKeywordsApiQueryString] Curated terms list is empty. Defaulting to 'popular electronics'.");
     return encodeURIComponent("popular electronics");
   }
+  // Ensure each term is properly encoded and wrapped in parentheses if it contains spaces,
+  // although encodeURIComponent handles spaces, explicit parentheses for OR grouping is good.
   const queryString = curatedHomepageSearchTerms.map(term => `(${encodeURIComponent(term)})`).join(' OR ');
   console.log(`[BayBot getGlobalCuratedKeywordsApiQueryString] Generated query string: ${queryString}`);
   return queryString;
@@ -227,11 +232,11 @@ export async function getGlobalCuratedKeywordsApiQueryString(): Promise<string> 
 
 
 export const fetchItems = async (
-  type: 'deal' | 'auction',
-  queryIdentifier: string
+  type: 'deal' | 'auction', // This is the INTENDED type from the calling page
+  queryIdentifier: string  // This can be a user search string OR a GLOBAL_MARKER
 ): Promise<BayBotItem[]> => {
   const isGlobalCuratedRequest = queryIdentifier === GLOBAL_CURATED_DEALS_REQUEST_MARKER || queryIdentifier === GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER;
-  const cacheKey = `browse:${type}:${queryIdentifier}`;
+  const cacheKey = `browse:${type}:${queryIdentifier}`; // Cache key includes the intended type and the identifier
   const cacheTTL = isGlobalCuratedRequest ? GLOBAL_CURATED_CACHE_TTL_MS : STANDARD_CACHE_TTL_MS;
 
   if (fetchItemsCache.has(cacheKey)) {
@@ -244,21 +249,21 @@ export const fetchItems = async (
       console.log(`[Cache EXPIRED] Deleted cache for key: ${cacheKey}`);
     }
   }
-  console.log(`[BayBot Fetch Cache MISS] Fetching items. Type: "${type}", Query Identifier: "${queryIdentifier}", Is Global Curated: ${isGlobalCuratedRequest}`);
+  console.log(`[BayBot Fetch Cache MISS] Fetching items. Intended Type: "${type}", Query Identifier: "${queryIdentifier}", Is Global Curated: ${isGlobalCuratedRequest}`);
 
   const authToken = await getEbayAuthToken();
 
   let keywordsForApi: string;
   if (isGlobalCuratedRequest) {
     keywordsForApi = await getGlobalCuratedKeywordsApiQueryString();
-    console.log(`[BayBot Fetch] Global curated request. Actual API query: "${keywordsForApi}" derived from marker "${queryIdentifier}"`);
+    console.log(`[BayBot Fetch] Global curated request. Actual API query (q): "${keywordsForApi}" (derived from marker "${queryIdentifier}")`);
   } else {
     keywordsForApi = queryIdentifier;
-    console.log(`[BayBot Fetch] User search or non-marker query. Actual API query: "${keywordsForApi}"`);
+    console.log(`[BayBot Fetch] User search or non-marker query. Actual API query (q): "${keywordsForApi}"`);
   }
 
-  if (!keywordsForApi) {
-      console.warn(`[BayBot Fetch] keywordsForApi was empty for type "${type}", queryIdentifier "${queryIdentifier}". Returning empty array.`);
+  if (!keywordsForApi || keywordsForApi.trim() === '') {
+      console.warn(`[BayBot Fetch] 'keywordsForApi' resolved to an empty string for type "${type}", queryIdentifier "${queryIdentifier}". Returning empty array to prevent API error.`);
       return [];
   }
 
@@ -270,22 +275,22 @@ export const fetchItems = async (
   let filterOptions: string[] = ['itemLocationCountry:GB'];
   let sortOption: string | null = null;
 
-  console.log(`[BayBot Fetch Logic] Preparing API call. Type from argument: "${type}", Query for API: "${keywordsForApi}", isGlobalCurated: ${isGlobalCuratedRequest}`);
+  console.log(`[BayBot Fetch Logic] Constructing API params. Base URL: ${browseApiUrl.origin}${browseApiUrl.pathname}. Query(q): "${keywordsForApi}". Intended type for params: "${type}". isGlobalCurated: ${isGlobalCuratedRequest}`);
 
   if (type === 'auction') {
-    console.log(`[BayBot Fetch Logic] Applying AUCTION specific filters and sort.`);
+    console.log(`[BayBot Fetch Logic] Applying AUCTION specific parameters.`);
     filterOptions.push('buyingOptions:{AUCTION}');
-    sortOption = 'endingSoonest';
+    sortOption = 'endingSoonest'; // Correct sort for auctions ending soonest
+    // No price or condition filters for general auction browsing by default
   } else { // Default to 'deal' logic
-    console.log(`[BayBot Fetch Logic] Applying DEAL specific filters and sort (type was: "${type}").`);
+    console.log(`[BayBot Fetch Logic] Applying DEAL specific parameters.`);
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
-    const minPrice = isGlobalCuratedRequest ? '20' : '100';
+    const minPrice = isGlobalCuratedRequest ? '20' : '100'; // Global curated deals start from £20
     filterOptions.push(`price:[${minPrice}..]`);
     filterOptions.push('priceCurrency:GBP');
-    // Using conditionIds for more robust filtering for deals
-    // 1000 (New), 2000 (Certified Refurbished), 2500 (Seller Refurbished), 3000 (Used)
+    // Condition IDs for New, Certified Refurbished, Seller Refurbished, Used
     filterOptions.push('conditionIds:{1000|2000|2500|3000}');
-    sortOption = 'bestMatch';
+    sortOption = 'bestMatch'; // Correct sort for deals
   }
 
   if (sortOption) {
@@ -294,8 +299,8 @@ export const fetchItems = async (
   const finalFilterString = filterOptions.join(',');
   browseApiUrl.searchParams.append('filter', finalFilterString);
 
-  console.log(`[BayBot Fetch] Final API call details: Effective Type for params: ${type === 'auction' ? 'auction' : 'deal'}, Sort: ${sortOption}, Filter: "${finalFilterString}"`);
-  console.log(`[BayBot Fetch] Constructed eBay API URL: ${browseApiUrl.toString()}`);
+  console.log(`[BayBot Fetch] Final API call details -- Sort: "${sortOption}", Filter: "${finalFilterString}"`);
+  console.log(`[BayBot Fetch] Full constructed eBay API URL: ${browseApiUrl.toString()}`);
 
   try {
     const response = await fetch(browseApiUrl.toString(), {
@@ -312,25 +317,35 @@ export const fetchItems = async (
     try {
         data = JSON.parse(responseDataText);
     } catch (jsonParseError) {
-        console.error(`eBay Browse API response was not valid JSON for query "${keywordsForApi}", type "${type}". URL: ${browseApiUrl.toString()}. Response text: ${responseDataText.substring(0, 500)}`);
-        throw new Error(`Failed to parse eBay API response as JSON. Response text: ${responseDataText.substring(0, 200)}...`);
+        console.error(`eBay Browse API response was not valid JSON for query "${keywordsForApi}", type "${type}". URL: ${browseApiUrl.toString()}. Response text (first 500 chars): ${responseDataText.substring(0, 500)}`);
+        throw new Error(`Failed to parse eBay API response as JSON. Response text (first 200 chars): ${responseDataText.substring(0, 200)}...`);
     }
 
     if (!response.ok) {
-      console.warn(`[BayBot Fetch eBay Response] eBay API request failed: ${response.status} for query "${keywordsForApi}", type "${type}". URL: ${browseApiUrl.toString()}.`);
+      console.warn(`[BayBot Fetch eBay Response] eBay API request FAILED with status: ${response.status} for query "${keywordsForApi}", type "${type}". URL: ${browseApiUrl.toString()}.`);
+      console.warn(`[BayBot Fetch eBay Response] Full eBay error response: ${JSON.stringify(data, null, 2)}`);
       if (data && data.warnings && data.warnings.length > 0) {
-        console.warn(`[BayBot Fetch eBay Response] eBay API returned warnings: ${JSON.stringify(data.warnings, null, 2)}. Query: "${keywordsForApi}", type: "${type}". Returning empty list.`);
-        fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
-        return []; 
+        // Log warnings but still attempt to process if there are itemSummaries (though unlikely with warnings that cause !response.ok)
+        // If the warning itself indicates a critical filter/sort issue, it often results in no items.
+        console.warn(`[BayBot Fetch eBay Response] eBay API returned warnings: ${JSON.stringify(data.warnings, null, 2)}. These warnings might indicate why the request failed or returned no items.`);
+      }
+      // If response is not OK, and there are critical warnings, it's often best to return empty or throw
+      // For now, if not OK, and warnings present that explain it, returning empty might be safer for UI
+      if (data && data.warnings && data.warnings.some((w:any) => w.message.includes("Invalid") || w.message.includes("Missing"))) {
+         console.log(`[BayBot Fetch eBay Response] Due to critical API warnings, returning empty list for query "${keywordsForApi}".`);
+         fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
+         return [];
       }
       throw new Error(`Failed to fetch from eBay Browse API (status ${response.status}). Query: "${keywordsForApi}". Check server logs for more details. eBay's response: ${JSON.stringify(data, null, 2).substring(0, 500)}`);
     }
 
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
-      const warningMessage = `[BayBot Fetch eBay Response] No items found from eBay for query: "${keywordsForApi}", type: "${type}". URL: ${browseApiUrl.toString()}.`;
-      console.warn(warningMessage, `eBay Response Data (if any): ${JSON.stringify(data, null, 2)}`);
+      const warningMessage = `[BayBot Fetch eBay Response] No items found (itemSummaries is null or empty) from eBay for query: "${keywordsForApi}", type: "${type}". URL: ${browseApiUrl.toString()}.`;
+      console.warn(warningMessage);
       if (data.warnings && data.warnings.length > 0) {
           console.warn(`[BayBot Fetch eBay Response] eBay API Warnings that might have led to no items:`, JSON.stringify(data.warnings, null, 2));
+      } else {
+          console.log(`[BayBot Fetch eBay Response] eBay API response contained no warnings, but also no items. eBay Response Data: ${JSON.stringify(data, null, 2)}`);
       }
       fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
@@ -338,10 +353,10 @@ export const fetchItems = async (
 
     const browseItems: BrowseApiItemSummary[] = data.itemSummaries || [];
     const transformedItems = browseItems
-      .map(browseItem => transformBrowseItem(browseItem, type))
+      .map(browseItem => transformBrowseItem(browseItem, type)) // Pass the intended type for transformation context
       .filter((item): item is BayBotItem => item !== null);
 
-    console.log(`[BayBot Fetch] Transformed ${transformedItems.length} items for query "${keywordsForApi}".`);
+    console.log(`[BayBot Fetch] Transformed ${transformedItems.length} items from ${browseItems.length} source items for query "${keywordsForApi}".`);
     fetchItemsCache.set(cacheKey, { data: transformedItems, timestamp: Date.now() });
     console.log(`[Cache SET] Cached ${transformedItems.length} items for key: ${cacheKey} (TTL: ${cacheTTL / 1000}s)`);
     return transformedItems;
@@ -350,9 +365,10 @@ export const fetchItems = async (
     console.error(`Error in fetchItems for query "${keywordsForApi}", type "${type}", URL: ${browseApiUrl.toString()}:`, error);
     if (error instanceof Error) {
         if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API") || error.message.includes("Failed to fetch from eBay Browse API") || error.message.includes('Critical eBay API Authentication Failure')) {
-             throw error;
+             throw error; // Rethrow critical, known errors
         }
-        throw new Error(`Failed to fetch eBay items: ${error.message}.`);
+        // For other errors, wrap them if not already specific enough
+        throw new Error(`Failed to fetch eBay items: ${error.message}. Original error type: ${error.constructor.name}`);
     }
     throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}.`);
   }
