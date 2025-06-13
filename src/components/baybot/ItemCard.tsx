@@ -32,7 +32,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
             <Badge
               variant="destructive"
-              className="absolute top-3 right-3 shadow-lg bg-destructive/80 backdrop-blur-sm text-destructive-foreground cursor-pointer hover:bg-destructive/90 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 flex items-center gap-1"
+              className="absolute top-3 right-3 shadow-lg bg-destructive/90 backdrop-blur-sm text-destructive-foreground cursor-pointer hover:bg-destructive focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 flex items-center gap-1"
               onClick={() => onAnalyze(item)}
               role="button"
               tabIndex={0}
