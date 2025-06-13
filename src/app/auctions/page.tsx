@@ -48,7 +48,7 @@ export default function AuctionsPage() {
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
     const isGlobalCuratedRequest = queryFromSearchState === '';
-    const fetchType = 'auctions'; // This page is always for auctions
+    const fetchType = 'auctions'; 
     const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER : queryFromSearchState;
     
 
@@ -56,7 +56,8 @@ export default function AuctionsPage() {
       let fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
       console.log(`[AuctionsPage loadItems] Fetched ${fetchedItems.length} items for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
       
-      processedItems = fetchedItems; // Auctions are sorted by API (endingSoonest)
+      // Auctions are already sorted by API (endingSoonest) via fetchItems
+      processedItems = fetchedItems; 
 
       if (processedItems.length > 0) {
         if (isGlobalCuratedRequest) {
@@ -104,13 +105,22 @@ export default function AuctionsPage() {
   }, [toast]);
 
   useEffect(() => {
-    console.log(`[AuctionsPage useEffect] Triggering loadItems. searchQuery: "${searchQuery}"`);
+    // This effect runs once on component mount.
+    // It calls loadItems with the initial searchQuery (which is "").
+    // This handles the initial fetch of global curated items.
+    // Subsequent searches are triggered by handleSearch.
+    console.log(`[AuctionsPage initial load useEffect] Triggering loadItems. Initial searchQuery: "${searchQuery}"`);
     loadItems(searchQuery);
-  }, [searchQuery, loadItems]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadItems]); // loadItems is a useCallback, its dependency is [toast]
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-  };
+
+  const handleSearch = useCallback((query: string) => {
+    // This function is called when the search form in AppHeader is submitted.
+    setSearchQuery(query); // Update the searchQuery state, which AppHeader's input uses.
+    loadItems(query);      // Trigger loading items with the new query.
+  }, [loadItems, setSearchQuery]);
+
 
   const handleLoadMore = () => {
     const newVisibleCount = visibleItemCount + ITEMS_PER_PAGE;
@@ -119,7 +129,6 @@ export default function AuctionsPage() {
   };
 
   const handleAnalyzeItem = (item: BayBotItem) => {
-    // Analysis modal is primarily for deals, but can show basic info for auctions
     setSelectedItemForAnalysis(item);
     setIsAnalysisModalOpen(true); 
   };
@@ -185,5 +194,3 @@ export default function AuctionsPage() {
     </div>
   );
 }
-
-    
