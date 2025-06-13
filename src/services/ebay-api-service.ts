@@ -123,6 +123,7 @@ interface BrowseApiItemSummary {
     discountAmount?: { value: string; currency: string };
   };
   condition?: string;
+  conditionId?: string; // For filtering
 }
 
 function getHighResolutionImageUrl(originalUrl?: string): string {
@@ -172,7 +173,6 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
     } else if (browseItem.buyingOptions?.includes('AUCTION') && !browseItem.buyingOptions?.includes('FIXED_PRICE')) {
         determinedItemType = 'auction';
     } else if (browseItem.buyingOptions?.includes('AUCTION') && browseItem.buyingOptions?.includes('FIXED_PRICE')) {
-        // If both, respect the typeFromFilter passed in (deals view shows deals, auctions view shows auctions)
         determinedItemType = itemTypeFromFilter;
     }
 
@@ -192,6 +192,7 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
       discountPercentage: discountPercentageValue,
       sellerReputation,
       'data-ai-hint': title.toLowerCase().split(' ').slice(0, 2).join(' '),
+      condition: browseItem.condition,
     };
 
     if (bayBotItem.type === 'auction') {
@@ -210,8 +211,8 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
 
 export const fetchItems = async (
   type: 'deal' | 'auction',
-  query: string, // Query is now mandatory, page.tsx will generate batched query for curated.
-  isCuratedHomepage: boolean = false // Flag to differentiate cache keys.
+  query: string, 
+  isCuratedHomepage: boolean = false 
 ): Promise<BayBotItem[]> => {
   const cacheKey = `browse:${type}:${query}:${isCuratedHomepage}`;
 
@@ -229,14 +230,13 @@ export const fetchItems = async (
 
   const authToken = await getEbayAuthToken();
   
-  // Query is now directly used as keywordsForApi.
-  // Defaulting to "popular items" if query is somehow empty is a safety net,
-  // but page.tsx should ensure query is populated.
-  const keywordsForApi = query || "popular items"; 
-  if (!query) {
-      console.warn(`[BayBot Fetch] query was empty, defaulting to "popular items". This should ideally be handled by the caller.`);
+  const keywordsForApi = query; 
+  if (!keywordsForApi) {
+      console.warn(`[BayBot Fetch] query was empty, which is unexpected at this stage. Using a fallback. This should be handled by the caller.`);
+      // This part should ideally not be reached if page.tsx handles query provision.
+      // For safety, return empty or use a very generic fallback.
+      return []; 
   }
-
 
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search'); 
   browseApiUrl.searchParams.append('q', keywordsForApi);
@@ -245,6 +245,8 @@ export const fetchItems = async (
   let filterOptions = ['itemLocationCountry:GB'];
   if (type === 'deal') {
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
+    filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}'); // Added condition filter for deals
+    filterOptions.push('price:[20..]'); // Added minimum price filter for deals (e.g., £20)
   } else { 
     filterOptions.push('buyingOptions:{AUCTION}');
     browseApiUrl.searchParams.append('sort', '-itemEndDate'); 
@@ -315,12 +317,14 @@ export async function getBatchedCuratedKeywordsQuery(): Promise<string> {
   }
 
   const shuffled = [...curatedHomepageSearchTerms].sort(() => 0.5 - Math.random());
-  const selectedTerms = shuffled.slice(0, CURATED_BATCH_SIZE);
+  // Ensure CURATED_BATCH_SIZE is not larger than the available terms
+  const batchSize = Math.min(CURATED_BATCH_SIZE, shuffled.length);
+  const selectedTerms = shuffled.slice(0, batchSize);
   
-  if (selectedTerms.length === 0) { // Should not happen if list is not empty
-    return "featured deals";
+  if (selectedTerms.length === 0) { 
+    return "featured deals"; // Should only happen if curatedHomepageSearchTerms was empty initially
   }
   
-  // Enclose each term in parentheses for better OR query structure
   return selectedTerms.map(term => `(${term})`).join(' OR ');
 }
+

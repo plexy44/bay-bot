@@ -9,6 +9,7 @@ export interface BayBotItem {
   originalPrice?: number; // RRP or original price for deals
   discountPercentage?: number; // Calculated or provided for deals
   sellerReputation: number; // Score from 0-100 (feedbackPercentage)
+  condition?: string; // Item condition string
   // Auction specific
   endTime?: string; // ISO date string, for auctions
   timeLeft?: string; // Human-readable time left, for auctions
