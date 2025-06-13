@@ -1,4 +1,3 @@
-
 'use client';
 
 import type React from 'react';
@@ -29,12 +28,11 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
 
   return (
     <Tabs value={tabValue} onValueChange={handleValueChange}>
-      <TabsList className="p-0 bg-transparent"> {/* Removed padding and background from TabsList */}
+      <TabsList className="inline-flex h-auto items-center justify-center rounded-md border border-border/40 bg-muted/30 p-0.5 shadow-sm">
         <TabsTrigger
           value="/"
           className={cn(
             "baybot-tabs-trigger px-3 sm:px-4"
-            // Removed interactive-glow
           )}
         >
           <TrendingUp className="h-4 w-4 sm:mr-2" />
@@ -44,7 +42,6 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
           value="/auctions"
           className={cn(
             "baybot-tabs-trigger px-3 sm:px-4"
-            // Removed interactive-glow
           )}
         >
           <Gavel className="h-4 w-4 sm:mr-2" />
@@ -54,5 +51,3 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
     </Tabs>
   );
 };
-
-    

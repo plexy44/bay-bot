@@ -112,39 +112,36 @@ body {
 
 /* BayBot Tabs Customization for Nav Bar */
 
-/* INACTIVE STATE: White button, black text/icons (applied to light and dark themes) */
+/* INACTIVE STATE: White button, black text/icons */
 .baybot-tabs-trigger {
-  background-color: hsl(0 0% 100%) !important; /* White background */
-  color: hsl(0 0% 13.7%) !important; /* Dark Gray text/icons (near black) */
-  border: 1px solid hsl(0 0% 13.7%) !important; /* Dark Gray border */
-  box-shadow: none !important;
-  opacity: 1 !important;
-}
-/* Remove hover/focus effects by setting them to the base inactive state */
-.baybot-tabs-trigger:hover,
-.baybot-tabs-trigger:focus-visible {
   background-color: hsl(0 0% 100%) !important;
   color: hsl(0 0% 13.7%) !important;
-  border-color: hsl(0 0% 13.7%) !important;
+  border: none !important; /* No individual border for triggers */
   box-shadow: none !important;
+  opacity: 1 !important;
+  /* Shadcn's TabsTrigger default is rounded-sm, px-3 py-1.5. These will be inherited unless overridden by className in component. */
+  transition: background-color 0.2s ease-out, color 0.2s ease-out;
 }
 
-/* ACTIVE STATE: Black button, white text/icons (applied to light and dark themes) */
+/* ACTIVE STATE: Black button, white text/icons */
 .baybot-tabs-trigger[data-state=active] {
-  background-color: hsl(0 0% 13.7%) !important; /* Dark Gray background (near black) */
-  color: hsl(0 0% 100%) !important; /* White text/icons */
-  border: 1px solid hsl(0 0% 13.7%) !important; /* Matching border */
-  box-shadow: none !important;
-}
-/* Remove hover/focus effects for active state by setting them to the base active state */
-.baybot-tabs-trigger[data-state=active]:hover,
-.baybot-tabs-trigger[data-state=active]:focus-visible {
   background-color: hsl(0 0% 13.7%) !important;
   color: hsl(0 0% 100%) !important;
-  border-color: hsl(0 0% 13.7%) !important;
+  border: none !important; /* No individual border for triggers */
   box-shadow: none !important;
 }
 
+/* Remove explicit hover/focus background/color changes */
+.baybot-tabs-trigger:hover,
+.baybot-tabs-trigger:focus-visible {
+  /* No background or color change. The base styles apply. */
+  /* Browser default focus ring will still apply for :focus-visible */
+}
+
+.baybot-tabs-trigger[data-state=active]:hover,
+.baybot-tabs-trigger[data-state=active]:focus-visible {
+  /* No background or color change. The active styles apply. */
+}
 /* End BayBot Tabs Customization */
 
 
