@@ -1,4 +1,3 @@
-
 'use client';
 
 import type React from 'react';
@@ -43,6 +42,8 @@ export default function AuctionsPage() {
     setIsLoading(true);
     setError(null);
     setIsAuthError(false);
+    setAllItems([]); // Clear previous items to prevent flicker
+    setDisplayedItems([]); // Clear previous items
     
     let processedItems: BayBotItem[] = [];
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
@@ -50,7 +51,7 @@ export default function AuctionsPage() {
     const isGlobalCuratedRequest = queryFromSearchState === '';
     const fetchType = 'auctions'; 
     const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER : queryFromSearchState;
-    
+    console.log(`[AuctionsPage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
     try {
       let fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
@@ -61,7 +62,7 @@ export default function AuctionsPage() {
 
       if (processedItems.length > 0) {
         if (isGlobalCuratedRequest) {
-          toastMessage = { title: "Global Curated Auctions", description: "Displaying auctions from our curated keywords, ending soonest."};
+          toastMessage = { title: "Curated Auctions", description: "Displaying auctions from a popular category, ending soonest."};
         } else {
           toastMessage = { title: "Auctions Loaded", description: `Displaying auctions for "${queryFromSearchState}", ending soonest.`};
         }
@@ -69,7 +70,7 @@ export default function AuctionsPage() {
          if (queryFromSearchState) {
             toastMessage = { title: "No Auctions Found", description: `No auctions found for "${queryFromSearchState}".`};
          } else {
-            toastMessage = { title: "No Curated Auctions", description: "No global curated auctions found at this time."};
+            toastMessage = { title: "No Curated Auctions", description: "No global curated auctions found for the sampled category at this time."};
          }
       }
 
@@ -83,7 +84,7 @@ export default function AuctionsPage() {
         } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
           displayMessage = "eBay API Authentication Failed. Check credentials and server logs.";
           setIsAuthError(true);
-        } else if (e.message.includes("Failed to fetch from eBay Browse API")) {
+        } else if (e.message.includes("Failed to fetch from eBay Browse API") || e.message.includes("Failed to fetch eBay items")) {
           displayMessage = `Error fetching from eBay for "${effectiveQueryForEbay}". Check query or eBay status. Server logs may have details.`;
         } else {
           displayMessage = e.message;
@@ -96,30 +97,27 @@ export default function AuctionsPage() {
       setDisplayedItems(processedItems.slice(0, ITEMS_PER_PAGE));
       setVisibleItemCount(ITEMS_PER_PAGE);
       setIsLoading(false);
-      console.log(`[AuctionsPage loadItems] Finalizing. isLoading: false.`);
+      console.log(`[AuctionsPage loadItems] Finalizing. Displayed ${processedItems.slice(0, ITEMS_PER_PAGE).length} of ${processedItems.length} items.`);
       
       if (toastMessage && !error) {
         toast(toastMessage);
+      } else if (error && !isAuthError) {
+         toast({title: "Error Loading Auctions", description: "An unexpected error occurred.", variant: "destructive"});
       }
     }
   }, [toast]);
 
   useEffect(() => {
-    // This effect runs once on component mount.
-    // It calls loadItems with the initial searchQuery (which is "").
-    // This handles the initial fetch of global curated items.
-    // Subsequent searches are triggered by handleSearch.
     console.log(`[AuctionsPage initial load useEffect] Triggering loadItems. Initial searchQuery: "${searchQuery}"`);
     loadItems(searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadItems]); // loadItems is a useCallback, its dependency is [toast]
+  }, [loadItems]); // loadItems is stable due to useCallback and its own stable dependencies.
 
 
   const handleSearch = useCallback((query: string) => {
-    // This function is called when the search form in AppHeader is submitted.
-    setSearchQuery(query); // Update the searchQuery state, which AppHeader's input uses.
-    loadItems(query);      // Trigger loading items with the new query.
-  }, [loadItems, setSearchQuery]);
+    setSearchQuery(query); 
+    loadItems(query);     
+  }, [loadItems]);
 
 
   const handleLoadMore = () => {
@@ -136,7 +134,7 @@ export default function AuctionsPage() {
   let noItemsTitle = "No Auctions Found";
   let noItemsDescription = searchQuery 
     ? `Try adjusting your search for "${searchQuery}".`
-    : "No global curated auctions available at the moment. Check back later!";
+    : "No global curated auctions available for the sampled category at the moment. Check back later!";
 
 
   return (

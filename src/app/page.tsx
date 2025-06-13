@@ -31,7 +31,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRanking, setIsRanking] = useState(false);
+  const [isRanking, setIsRanking] = useState(false); // Corrected initialization
   const [error, setError] = useState<string | null>(null);
   const [isAuthError, setIsAuthError] = useState(false);
 
@@ -51,6 +51,8 @@ export default function HomePage() { // This is the Curated Deals page at '/'
 
   const loadItems = useCallback(async (queryFromSearchState: string) => {
     console.log(`[HomePage loadItems] Initiating. Query from state: "${queryFromSearchState}"`);
+    setAllItems([]); 
+    setDisplayedItems([]);
     setIsLoading(true);
     setIsRanking(false);
     setError(null);
@@ -70,17 +72,13 @@ export default function HomePage() { // This is the Curated Deals page at '/'
 
       if (fetchedItems.length > 0) {
         if (isGlobalCuratedRequest) {
-          // For global curated deals, sort by discount and bypass AI ranking for now
-          // as AI ranking might be less effective on a very broad, diverse set.
-          // Or, if AI ranking is desired for global, it can be re-enabled here.
           processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-          toastMessage = { title: "Curated Deals: Sorted by Discount", description: "Displaying global deals by discount." };
+          toastMessage = { title: "Curated Deals", description: `Displaying global deals for a popular category, sorted by discount.` };
           console.log(`[HomePage loadItems] Global curated deals (${processedItems.length}) sorted by discount.`);
         } else {
-          // For user-searched deals, apply AI ranking
           setIsRanking(true);
           const dealsInputForAI: AIDeal[] = fetchedItems.map(mapToAIDeal);
-          const aiQueryContext = queryFromSearchState; // User's actual search query
+          const aiQueryContext = queryFromSearchState;
           
           try {
             const aiRankerInput: RankDealsInput = { deals: dealsInputForAI, query: aiQueryContext };
@@ -103,7 +101,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
             } else {
               console.warn(`[HomePage loadItems] AI ranking issue or no change for query "${aiQueryContext}". Fallback: Sorting ${fetchedItems.length} deals by discount.`);
               processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-              toastMessage = { title: "Deals: Sorted by Discount", description: `Displaying deals for "${queryFromSearchState}" by discount. AI ranking might have had no effect or issue.` };
+              toastMessage = { title: "Deals: Sorted by Discount", description: `Displaying deals for "${queryFromSearchState}" by discount. AI ranking may have had an issue or no effect.` };
             }
           } catch (aiRankErrorCaught: any) {
             console.error("[HomePage loadItems] AI Ranking failed for user search:", aiRankErrorCaught);
@@ -116,7 +114,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
          if (queryFromSearchState) {
             toastMessage = { title: "No Deals Found", description: `No deals found for "${queryFromSearchState}".`};
          } else {
-            toastMessage = { title: "No Curated Deals", description: "No global curated deals found at this time."};
+            toastMessage = { title: "No Curated Deals", description: "No global curated deals found for the sampled category at this time."};
          }
          console.log(`[HomePage loadItems] No items fetched or processed. isGlobalCuratedRequest: ${isGlobalCuratedRequest}, query: "${queryFromSearchState}"`);
       }
@@ -144,7 +142,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
       setVisibleItemCount(ITEMS_PER_PAGE);
       setIsLoading(false);
       setIsRanking(false);
-      console.log(`[HomePage loadItems] Finalizing. isLoading: false, isRanking: false. Displayed ${displayedItems.length} of ${processedItems.length} items.`);
+      console.log(`[HomePage loadItems] Finalizing. Displayed ${processedItems.slice(0, ITEMS_PER_PAGE).length} of ${processedItems.length} items.`);
       
       if (toastMessage && !error) {
         toast(toastMessage);
@@ -155,20 +153,16 @@ export default function HomePage() { // This is the Curated Deals page at '/'
   }, [toast, mapToAIDeal]);
 
   useEffect(() => {
-    // This effect runs once on component mount.
-    // It calls loadItems with the initial searchQuery (which is "").
-    // This handles the initial fetch of global curated items.
-    // Subsequent searches are triggered by handleSearch.
     console.log(`[HomePage initial load useEffect] Triggering loadItems. Initial searchQuery: "${searchQuery}"`);
     loadItems(searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadItems]); // loadItems is a useCallback, its dependencies are [toast, mapToAIDeal]
+  }, [loadItems]); 
+
 
   const handleSearch = useCallback((query: string) => {
-    // This function is called when the search form in AppHeader is submitted.
-    setSearchQuery(query); // Update the searchQuery state, which AppHeader's input uses.
-    loadItems(query);      // Trigger loading items with the new query.
-  }, [loadItems, setSearchQuery]);
+    setSearchQuery(query); 
+    loadItems(query);      
+  }, [loadItems]);
 
 
   const handleLoadMore = () => {
@@ -185,7 +179,7 @@ export default function HomePage() { // This is the Curated Deals page at '/'
   let noItemsTitle = "No Deals Found";
   let noItemsDescription = searchQuery 
     ? `Try adjusting your search for "${searchQuery}".` 
-    : "No global curated deals available at the moment. Check back later!";
+    : "No global curated deals available for the sampled category right now. Check back later!";
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -242,3 +236,5 @@ export default function HomePage() { // This is the Curated Deals page at '/'
     </div>
   );
 }
+
+    
