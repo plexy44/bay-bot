@@ -108,12 +108,12 @@ interface EbayApiItem {
   primaryCategory?: {
     categoryName?: string[];
   }[];
-  paymentMethod?: string[]; // Can indicate Buy It Now if it contains "PayPal" etc.
+  paymentMethod?: string[];
   viewItemURL?: string[];
-  description?: string[]; // Not typically in Finding API, may need separate call or use title
-  discountPriceInfo?: { // This is key for discounts
+  description?: string[];
+  discountPriceInfo?: {
     originalRetailPrice?: { _currencyId: string; __value__: string }[];
-    pricingTreatment?: string[]; // e.g. "STP" (Strike-Through Price)
+    pricingTreatment?: string[];
   }[];
 }
 
@@ -129,10 +129,6 @@ function transformEbayItem(ebayItem: EbayApiItem, itemType: 'deal' | 'auction'):
     let originalPriceValue: number | undefined = undefined;
     if (ebayItem.discountPriceInfo?.[0]?.originalRetailPrice?.[0]?.__value__) {
       originalPriceValue = parseFloat(ebayItem.discountPriceInfo[0].originalRetailPrice[0].__value__);
-    } else if (itemType === 'deal' && ebayItem.listingInfo[0].buyItNowPrice?.__value__) {
-      // Fallback for deals if no explicit discount info, but BIN price might be the "current"
-      // This isn't a true original price for discount calculation unless we assume BIN is always discounted.
-      // For now, only use explicit originalRetailPrice
     }
 
 
@@ -140,20 +136,18 @@ function transformEbayItem(ebayItem: EbayApiItem, itemType: 'deal' | 'auction'):
     
     const sellerReputation = ebayItem.sellerInfo?.[0]?.positiveFeedbackPercent?.[0]
       ? parseFloat(ebayItem.sellerInfo[0].positiveFeedbackPercent[0])
-      : 70; // Default reputation if not available
+      : 70;
 
     const bayBotItem: BayBotItem = {
       id,
       type: itemType,
       title,
-      // Description from Finding API is often limited; using title for now or a generic placeholder
       description: `View this item on eBay: ${ebayItem.viewItemURL?.[0] || title}`, 
       imageUrl,
       price: currentPriceValue,
       originalPrice: originalPriceValue,
       discountPercentage,
       sellerReputation,
-      // @ts-ignore
       'data-ai-hint': title.toLowerCase().split(' ').slice(0, 2).join(' '),
     };
 
@@ -176,7 +170,7 @@ export const fetchItems = async (
   query?: string,
   isCuratedHomepageDeals: boolean = false
 ): Promise<BayBotItem[]> => {
-  const authToken = await getEbayAuthToken(); // Should be called if using Browse API, Finding API uses AppID
+  const authToken = await getEbayAuthToken();
   const appId = process.env.EBAY_APP_ID;
 
   if (!appId) {
@@ -185,11 +179,9 @@ export const fetchItems = async (
 
   let keywords = query || '';
   if (isCuratedHomepageDeals && !query) {
-    // For curated homepage deals, use general keywords or popular categories
-    // Example: fetch from a broad category like "Consumer Electronics" or general "deals"
-    keywords = "deals"; // A generic term to get a variety
+    keywords = "deals"; 
   } else if (type === 'auction' && !query) {
-    keywords = "collectible auction"; // Generic auction term
+    keywords = "collectible auction"; 
   }
 
 
@@ -199,31 +191,36 @@ export const fetchItems = async (
   findingApiUrl.searchParams.append('RESPONSE-DATA-FORMAT', 'JSON');
   findingApiUrl.searchParams.append('REST-PAYLOAD', '');
   findingApiUrl.searchParams.append('GLOBAL-ID', EBAY_SITE_ID);
-  findingApiUrl.searchParams.append('siteid', '3'); // UK site ID for GLOBAL-ID EBAY-GB
+  findingApiUrl.searchParams.append('siteid', '3'); 
   findingApiUrl.searchParams.append('keywords', keywords);
   findingApiUrl.searchParams.append('outputSelector(0)', 'PictureURLLarge');
   findingApiUrl.searchParams.append('outputSelector(1)', 'SellerInfo');
-  findingApiUrl.searchParams.append('outputSelector(2)', 'StoreInfo');
-  // Request DiscountPriceInfo to get original prices for deals
-  findingApiUrl.searchParams.append('outputSelector(3)', 'AspectHistogram'); // May not be needed
-  findingApiUrl.searchParams.append('aspectFilter(0).aspectName', 'DiscountPriceInfo');
+  findingApiUrl.searchParams.append('outputSelector(2)', 'Description'); // Requesting full description
+  findingApiUrl.searchParams.append('outputSelector(3)', 'ItemSpecifics');
+  findingApiUrl.searchParams.append('outputSelector(4)', 'GalleryInfo');
+  findingApiUrl.searchParams.append('outputSelector(5)', 'DiscountPriceInfo'); // Ensure this is requested
 
 
   if (type === 'deal') {
     findingApiUrl.searchParams.append('OPERATION-NAME', 'findItemsAdvanced');
     findingApiUrl.searchParams.append('itemFilter(0).name', 'ListingType');
-    findingApiUrl.searchParams.append('itemFilter(0).value(0)', 'FixedPrice'); // "Buy It Now"
-    // Optionally, filter for items with discounts if the API supports it directly,
-    // otherwise, we fetch and then filter/sort by calculated discount.
-    // Example: findItemsAdvanced often includes items with DiscountPriceInfo if they are on sale.
-    findingApiUrl.searchParams.append('sortOrder', 'BestMatch'); // AI will re-rank, so BestMatch is a good start.
+    findingApiUrl.searchParams.append('itemFilter(0).value(0)', 'FixedPrice'); 
+    findingApiUrl.searchParams.append('itemFilter(1).name', 'MinPrice');
+    findingApiUrl.searchParams.append('itemFilter(1).value', '0.01'); // Ensure items have a price
+    findingApiUrl.searchParams.append('itemFilter(2).name', 'HideDuplicateItems');
+    findingApiUrl.searchParams.append('itemFilter(2).value', 'true');
+    findingApiUrl.searchParams.append('sortOrder', 'PricePlusShippingLowest'); // Start with a sensible sort for deals
   } else { // auction
     findingApiUrl.searchParams.append('OPERATION-NAME', 'findItemsAdvanced');
     findingApiUrl.searchParams.append('itemFilter(0).name', 'ListingType');
     findingApiUrl.searchParams.append('itemFilter(0).value(0)', 'Auction');
+    findingApiUrl.searchParams.append('itemFilter(1).name', 'MinPrice');
+    findingApiUrl.searchParams.append('itemFilter(1).value', '0.01');
+    findingApiUrl.searchParams.append('itemFilter(2).name', 'HideDuplicateItems');
+    findingApiUrl.searchParams.append('itemFilter(2).value', 'true');
     findingApiUrl.searchParams.append('sortOrder', 'EndTimeSoonest');
   }
-  findingApiUrl.searchParams.append('paginationInput.entriesPerPage', '20'); // Fetch more items for AI to rank/filter
+  findingApiUrl.searchParams.append('paginationInput.entriesPerPage', '20');
 
   try {
     const response = await fetch(findingApiUrl.toString(), { cache: 'no-store' });
@@ -234,24 +231,20 @@ export const fetchItems = async (
     }
 
     const data = await response.json();
-    const operationResultKey = type === 'deal' 
-        ? 'findItemsAdvancedResponse' 
-        : 'findItemsAdvancedResponse'; // Both operations use findItemsAdvancedResponse for auctions too
     
-    if (!data[operationResultKey] || !data[operationResultKey][0].searchResult || !data[operationResultKey][0].searchResult[0].item) {
-      console.warn('No items found or unexpected API response structure from eBay for query:', query, 'type:', type);
+    const operationResponseKey = Object.keys(data)[0]; // e.g., findItemsAdvancedResponse or findItemsByKeywordsResponse
+    if (!data[operationResponseKey] || !data[operationResponseKey][0].searchResult || !data[operationResponseKey][0].searchResult[0].item) {
+      console.warn('No items found or unexpected API response structure from eBay for query:', query, 'type:', type, 'data:', JSON.stringify(data, null, 2));
       return [];
     }
     
-    const ebayItems: EbayApiItem[] = data[operationResultKey][0].searchResult[0].item || [];
+    const ebayItems: EbayApiItem[] = data[operationResponseKey][0].searchResult[0].item || [];
     
     const transformedItems = ebayItems
       .map(ebayItem => transformEbayItem(ebayItem, type))
       .filter((item): item is BayBotItem => item !== null);
 
     if (type === 'deal') {
-        // Initial sort by discount percentage for deals fetched from API (before AI ranking if any)
-        // AI ranking will happen in page.tsx, this is a pre-sort
         return transformedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
     }
     
@@ -259,13 +252,12 @@ export const fetchItems = async (
 
   } catch (error) {
     console.error('Error fetching or processing eBay items:', error);
-    return []; // Return empty array on error
+    return []; 
   }
 };
 
 // This function is still used by the clickable logo in AppHeader
-export function getRandomPopularSearchTerm(): string {
+export async function getRandomPopularSearchTerm(): Promise<string> {
   if (popularSearchTermsForLogoClick.length === 0) return "tech deals"; // Fallback
   return popularSearchTermsForLogoClick[Math.floor(Math.random() * popularSearchTermsForLogoClick.length)];
 }
-

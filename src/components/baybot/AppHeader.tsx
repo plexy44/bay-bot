@@ -22,21 +22,21 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
     onSearch(searchQuery);
   };
 
-  const handleLogoClick = () => {
-    const randomTerm = getRandomPopularSearchTerm();
+  const handleLogoClick = async () => {
+    const randomTerm = await getRandomPopularSearchTerm();
     setSearchQuery(randomTerm); 
 
     if (currentView !== 'deals') {
       onViewChange('deals'); 
     } else {
-      onSearch(randomTerm); // If already on deals, directly trigger search with the new term
+      onSearch(randomTerm); 
     }
   };
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/60 backdrop-blur-lg supports-[backdrop-filter]:bg-background/40">
       <div className="container flex h-16 max-w-screen-2xl items-center">
-        <div className="ml-2 mr-4 flex items-center md:ml-4">
+        <div className="ml-4 mr-4 flex items-center md:ml-8"> {/* Increased ml for more space */}
           <button 
             onClick={handleLogoClick} 
             className="text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
