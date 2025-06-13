@@ -99,24 +99,23 @@ interface BrowseApiItemSummary {
   title: string;
   image?: { imageUrl: string };
   price: { value: string; currency: string };
-  itemAffiliateWebUrl?: string; // For linking to the item
-  itemWebUrl?: string; // Alternative link
-  shortDescription?: string; // Browse API provides short description
+  itemAffiliateWebUrl?: string; 
+  itemWebUrl?: string; 
+  shortDescription?: string; 
   seller: {
     username: string;
     feedbackPercentage: string;
     feedbackScore: number;
   };
-  buyingOptions: string[]; // Contains "FIXED_PRICE" or "AUCTION"
-  itemEndDate?: string; // For auctions
-  bidCount?: number; // For auctions
-  marketingPrice?: { // For deals
+  buyingOptions: string[]; 
+  itemEndDate?: string; 
+  bidCount?: number; 
+  marketingPrice?: { 
     originalPrice?: { value: string; currency: string };
     discountPercentage?: string;
     discountAmount?: { value: string; currency: string };
   };
   condition?: string;
-  // Add other fields you might need from Browse API response
 }
 
 
@@ -139,19 +138,16 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
       }
     }
 
-    // If discountPercentage wasn't directly provided but we have originalPrice, calculate it.
     if (discountPercentageValue === undefined && originalPriceValue !== undefined) {
       discountPercentageValue = calculateDiscountPercentage(currentPriceValue, originalPriceValue);
     }
-    // Ensure discount is 0 if not applicable
      discountPercentageValue = discountPercentageValue || 0;
 
 
     const sellerReputation = browseItem.seller?.feedbackPercentage
       ? parseFloat(browseItem.seller.feedbackPercentage)
-      : 70; // Default reputation if not available
+      : 70; 
 
-    // Determine item type based on buyingOptions, fall back to what was requested if ambiguous
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
     if (browseItem.buyingOptions?.includes('FIXED_PRICE')) {
         determinedItemType = 'deal';
@@ -210,24 +206,21 @@ export const fetchItems = async (
   
   let keywords = query || '';
   if (isCuratedHomepageDeals && !query) {
-    keywords = "top deals"; // Generic term for curated deals
+    keywords = "top deals"; 
   } else if (type === 'auction' && !query) {
-    keywords = "collectible auction"; // Default for auctions
+    keywords = "collectible auction"; 
   }
 
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search');
   browseApiUrl.searchParams.append('q', keywords);
-  browseApiUrl.searchParams.append('limit', '20'); // Request 20 items
+  browseApiUrl.searchParams.append('limit', '20'); 
 
-  let filterOptions = ['itemLocationCountry:GB']; // Always filter for UK items
+  let filterOptions = ['itemLocationCountry:GB']; 
   if (type === 'deal') {
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
-    // For deals, sorting by discount might be tricky. Browse API may support sorting by price.
-    // Example: browseApiUrl.searchParams.append('sort', 'price'); // Ascending price
-    // Rely on AI Ranker for smart sorting by discount.
-  } else { // auction
+  } else { 
     filterOptions.push('buyingOptions:{AUCTION}');
-    browseApiUrl.searchParams.append('sort', '-itemEndDate'); // Ending soonest
+    browseApiUrl.searchParams.append('sort', '-itemEndDate'); 
   }
   browseApiUrl.searchParams.append('filter', filterOptions.join(','));
 
@@ -236,7 +229,7 @@ export const fetchItems = async (
     const response = await fetch(browseApiUrl.toString(), {
       headers: {
         'Authorization': `Bearer ${authToken}`,
-        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB', // UK Marketplace
+        'X-EBAY-C-MARKETPLACE-ID': 'EBAY_GB', 
         'Accept': 'application/json',
       },
       cache: 'no-store',
@@ -245,7 +238,6 @@ export const fetchItems = async (
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`eBay Browse API request failed: ${response.status} for query "${keywords}", type "${type}". Body: ${errorBody}`);
-      fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       throw new Error(`eBay Browse API request failed: ${response.status}. Check server logs. eBay response: ${errorBody}`);
     }
 
@@ -267,26 +259,27 @@ export const fetchItems = async (
     console.log(`[Cache SET] Cached items for key: ${cacheKey}`);
     
     if (type === 'deal') {
-        // Initial sort by discount for deals; AI ranker will further refine.
         return transformedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
     }
     
-    return transformedItems; // Auctions are sorted by EndTimeSoonest from API via sort=-itemEndDate
+    return transformedItems; 
 
   } catch (error) {
-    console.error('Error fetching or processing eBay Browse API items for query:', keywords, 'type:', type, error);
-    if (!fetchItemsCache.has(cacheKey)) {
-      fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
+    console.error(`Error in fetchItems for query "${keywords}", type "${type}":`, error);
+    // Ensure a standard Error object is thrown for better serialization
+    if (error instanceof Error) {
+        // If it's already the specific Browse API error, re-throw it directly if it contains "eBay Browse API request failed"
+        // This helps preserve specific error messages from the API response for client-side display.
+        if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed")) {
+             throw error;
+        }
+        throw new Error(`Failed to fetch eBay items: ${error.message}`);
     }
-    if (error instanceof Error && error.message.includes('eBay Browse API request failed')) {
-      throw error; // Re-throw the specific error to be caught by page.tsx
-    }
-    throw new Error(`Failed to fetch items from eBay. Check server logs. Original error: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}`);
   }
 };
 
 export async function getRandomPopularSearchTerm(): Promise<string> {
-  if (popularSearchTermsForLogoClick.length === 0) return "tech deals"; // Fallback
+  if (popularSearchTermsForLogoClick.length === 0) return "tech deals"; 
   return popularSearchTermsForLogoClick[Math.floor(Math.random() * popularSearchTermsForLogoClick.length)];
 }
-

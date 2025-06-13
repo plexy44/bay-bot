@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -64,7 +65,11 @@ const rankDealsFlow = ai.defineFlow(
   async input => {
     try {
       const {output} = await rankDealsPrompt(input);
-      return output!;
+      if (!output) {
+        console.warn('AI ranking prompt returned no output, returning original list. Query:', input.query);
+        return input.deals; // Gracefully return original deals
+      }
+      return output;
     } catch (e) {
       console.error('Failed to rank deals, returning original list.', e);
       return input.deals;

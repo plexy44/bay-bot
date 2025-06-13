@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -74,6 +75,10 @@ const analyzeDealFlow = ai.defineFlow(
   },
   async input => {
     const {output} = await prompt(input);
-    return output!;
+    if (!output) {
+      console.error('AI analysis prompt failed to return output for input:', input);
+      throw new Error('AI analysis failed to produce a result.');
+    }
+    return output;
   }
 );
