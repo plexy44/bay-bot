@@ -14,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>{/* suppressHydrationWarning for localStorage theme changes */}
+    <html lang="en" suppressHydrationWarning> {/* suppressHydrationWarning for theme changes */}
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -25,18 +25,26 @@ export default function RootLayout({
             __html: `
               (function() {
                 function getInitialTheme() {
-                  const storedTheme = localStorage.getItem('theme');
-                  if (storedTheme) {
-                    return storedTheme;
+                  try {
+                    const storedTheme = localStorage.getItem('theme');
+                    // Validate that storedTheme is one of the expected values
+                    if (storedTheme === 'light' || storedTheme === 'dark') {
+                      return storedTheme;
+                    }
+                  } catch (e) {
+                    // localStorage is not available or other error
+                    console.warn('Could not access localStorage for theme:', e);
                   }
-                  // Default to dark if no preference or stored theme, matching original behavior
+                  // Fallback to system preference if no valid theme is stored or localStorage fails
                   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
                 }
                 const theme = getInitialTheme();
                 if (theme === 'dark') {
                   document.documentElement.classList.add('dark');
-                } else {
+                  document.documentElement.classList.remove('light');
+                } else { // theme === 'light'
                   document.documentElement.classList.remove('dark');
+                  document.documentElement.classList.add('light');
                 }
               })();
             `,

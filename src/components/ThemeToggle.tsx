@@ -1,67 +1,72 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export function ThemeToggle() {
-  // Initialize state from document class, which should be set by inline script
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     if (typeof window !== 'undefined') {
+      // Initialize based on class set by inline script in layout.tsx
       return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
     }
-    return 'dark'; // Fallback, though inline script should make this accurate
+    return 'light'; // Default for SSR or if window is not defined yet (client will correct)
   });
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // Sync with localStorage and OS preference if no explicit choice is stored
-    const storedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null;
-    const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    setMounted(true);
 
-    let currentTheme: 'light' | 'dark';
+    // Sync React state with the actual document theme on mount, just in case.
+    // The inline script in layout.tsx should have set the correct class.
+    const currentDocTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
+    if (theme !== currentDocTheme) {
+      setTheme(currentDocTheme);
+    }
 
-    if (storedTheme) {
-      currentTheme = storedTheme;
-    } else {
-      currentTheme = systemPrefersDark ? 'dark' : 'light';
-    }
-    
-    if (theme !== currentTheme) { // If React state is out of sync with effective theme
-        setTheme(currentTheme); // Sync React state
-        // The class on documentElement should already be correct due to inline script or previous toggle
-    }
-    
-    // Listener for system theme changes, to update if no theme is stored in localStorage
+    // Listener for system theme changes
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = (e: MediaQueryListEvent) => {
+    const handleSystemThemeChange = (e: MediaQueryListEvent) => {
       if (!localStorage.getItem('theme')) { // Only apply if no user preference is set
         const newSystemTheme = e.matches ? 'dark' : 'light';
-        setTheme(newSystemTheme);
+        setTheme(newSystemTheme); // Update React state
+        // Update document class
         if (newSystemTheme === 'dark') {
           document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
         } else {
           document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
         }
       }
     };
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
 
-  }, [theme]); // Re-run if theme state changes, to ensure consistency
+    mediaQuery.addEventListener('change', handleSystemThemeChange);
+    return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // `theme` is not needed as a dependency as its initial sync is handled.
 
-  const toggleTheme = () => {
-    setTheme(prevTheme => {
-      const newTheme = prevTheme === 'light' ? 'dark' : 'light';
-      localStorage.setItem('theme', newTheme);
-      if (newTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
-      return newTheme;
-    });
-  };
+  const toggleTheme = useCallback(() => {
+    const newTheme = theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem('theme', newTheme); // Store user preference
+    setTheme(newTheme); // Update React state
+
+    // Directly update document class
+    if (newTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+    }
+  }, [theme]);
+
+  if (!mounted) {
+    // Render a placeholder to prevent hydration mismatch for the icon.
+    // Sized to match the button to avoid layout shift.
+    return <div className="h-10 w-10 rounded-full border interactive-glow" aria-label="Loading theme toggle" />;
+  }
 
   return (
     <Button
@@ -71,7 +76,7 @@ export function ThemeToggle() {
       className="rounded-full interactive-glow"
       aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
     >
-      {theme === 'light' ? <Moon className="h-[1.2rem] w-[1.2rem]" /> : <Sun className="h-[1.2rem] w-[1.2rem]" />}
+      {theme === 'dark' ? <Sun className="h-[1.2rem] w-[1.2rem]" /> : <Moon className="h-[1.2rem] w-[1.2rem]" />}
     </Button>
   );
 }
