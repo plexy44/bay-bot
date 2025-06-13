@@ -260,7 +260,7 @@ function HomePageContent() {
       }
     }
 
-  }, [toast]);
+  }, [toast]); // Removed router from dependencies as it's stable, setInputValue and other state setters are also stable.
 
   useEffect(() => {
     console.log(`[HomePage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
@@ -285,6 +285,13 @@ function HomePageContent() {
     setSelectedItemForAnalysis(item);
     setIsAnalysisModalOpen(true);
   };
+
+  const handleKeywordSearchFromModal = (keyword: string) => {
+    setIsAnalysisModalOpen(false); // Close modal
+    setInputValue(keyword); // Update main search input field
+    router.push(`/?q=${encodeURIComponent(keyword)}`); // Navigate to deals page (homepage) with new query
+  };
+
 
   let noItemsTitle = "No Deals Found";
   let noItemsDescription = currentQueryFromUrl
@@ -350,6 +357,7 @@ function HomePageContent() {
           item={selectedItemForAnalysis}
           isOpen={isAnalysisModalOpen}
           onClose={() => setIsAnalysisModalOpen(false)}
+          onKeywordSearch={handleKeywordSearchFromModal}
         />
       )}
     </div>
@@ -363,3 +371,4 @@ export default function HomePage() {
     </Suspense>
   );
 }
+

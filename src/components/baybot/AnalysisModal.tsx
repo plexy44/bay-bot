@@ -9,18 +9,18 @@ import { Loader2, AlertTriangle, Zap } from "lucide-react";
 import type { BayBotItem, AnalysisResult } from '@/types';
 import { analyzeDeal, type AnalyzeDealInput } from '@/ai/flows/analyze-deal';
 
-// New Atomic Component Imports
 import { DealPriceBreakdown } from './atomic/DealPriceBreakdown';
 import { AIScoresDisplay } from './atomic/AIScoresDisplay';
-import { AISummaryDisplay } from './atomic/AISummaryDisplay';
+import { KeywordPillsDisplay } from './atomic/KeywordPillsDisplay'; // New import
 
 interface AnalysisModalProps {
   item: BayBotItem | null;
   isOpen: boolean;
   onClose: () => void;
+  onKeywordSearch: (keyword: string) => void; // New prop
 }
 
-export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onClose }) => {
+export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onClose, onKeywordSearch }) => {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,7 +84,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
             <Zap className="w-6 h-6 mr-2 text-primary" /> AI Analysis: {item.title}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {item.type === 'deal' ? "Powered by GenAI to assess risk and rarity." : "AI Analysis is for deals only."}
+            {item.type === 'deal' ? "Powered by GenAI to assess risk, rarity, and suggest related searches." : "AI Analysis is for deals only."}
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-6">
@@ -110,7 +110,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
                 animatedRiskScore={animatedRiskScore}
                 animatedRarityScore={animatedRarityScore}
               />
-              <AISummaryDisplay analysis={analysis} />
+              <KeywordPillsDisplay keywords={analysis.keywords} onKeywordClick={onKeywordSearch} />
             </>
           )}
           

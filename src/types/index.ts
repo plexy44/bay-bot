@@ -25,5 +25,6 @@ export interface BayBotItem {
 export interface AnalysisResult {
   riskScore: number;
   rarityScore: number;
-  summary: string;
+  keywords: string[];
 }
+

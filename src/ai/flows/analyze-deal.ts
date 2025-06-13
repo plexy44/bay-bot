@@ -2,7 +2,7 @@
 'use server';
 
 /**
- * @fileOverview An AI agent that analyzes a deal to provide a risk and rarity score.
+ * @fileOverview An AI agent that analyzes a deal to provide a risk and rarity score, and relevant keywords.
  *
  * - analyzeDeal - A function that handles the deal analysis process.
  * - AnalyzeDealInput - The input type for the analyzeDeal function.
@@ -36,9 +36,15 @@ const AnalyzeDealOutputSchema = z.object({
       .min(0)
       .max(100)
       .describe(
-        'A score between 0 and 100 indicating the rarity of the deal, with higher scores indicating rarer deals.'
+        'A score between 0 and 100 indicating the rarity of the deal. Assign lower scores to common, mass-produced items, even if they are good deals. Higher scores are for genuinely hard-to-find items (vintage, limited edition, very specific configurations, or truly exceptional short-lived deals on popular items).'
       ),
-  summary: z.string().describe('A summary of why the deal has the risk and rarity scores assigned.'),
+  keywords: z
+    .array(z.string())
+    .min(3)
+    .max(5)
+    .describe(
+      'An array of 3 to 5 relevant keywords extracted from the deal, such as brand, category, or key features. These should be concise and suitable for initiating new searches.'
+    ),
 });
 export type AnalyzeDealOutput = z.infer<typeof AnalyzeDealOutputSchema>;
 
@@ -50,9 +56,9 @@ const prompt = ai.definePrompt({
   name: 'analyzeDealPrompt',
   input: {schema: AnalyzeDealInputSchema},
   output: {schema: AnalyzeDealOutputSchema},
-  prompt: `You are an expert deal analyst specializing in assessing the risk and rarity of online deals.
+  prompt: `You are an expert deal analyst specializing in assessing the risk and rarity of online deals, and extracting relevant keywords.
 
-You will use the following information to analyze the deal and determine its risk and rarity.
+You will use the following information to analyze the deal:
 
 Title: {{{title}}}
 Description: {{{description}}}
@@ -61,9 +67,12 @@ Original Price: {{{originalPrice}}}
 Discount Percentage: {{{discountPercentage}}}
 Image URL: {{{imageUrl}}}
 
-Based on this information, provide a riskScore and rarityScore for the deal, and a summary of your analysis.
-The riskScore should be a number between 0 and 100, with higher scores indicating higher risk.
-The rarityScore should be a number between 0 and 100, with higher scores indicating rarer deals.
+Based on this information:
+1.  Provide a riskScore (0-100, higher is riskier).
+2.  Provide a rarityScore (0-100). For rarityScore, be mindful:
+    *   Assign **LOWER** scores to common, easily available, mass-produced items (e.g., a standard current model iPhone, a common brand of kitchen appliance) even if the deal itself is good.
+    *   Assign **HIGHER** scores to items that are genuinely hard to find, such as vintage items, limited editions, very specific or uncommon configurations/models, or truly exceptional, short-lived deep discounts on popular items that make them unusually scarce at that price.
+3.  Provide an array of 3 to 5 concise keywords (e.g., brand, item category, key features) that are relevant to the item and would be useful for starting a new search for similar items.
 `,
 });
 
@@ -82,3 +91,4 @@ const analyzeDealFlow = ai.defineFlow(
     return output;
   }
 );
+
