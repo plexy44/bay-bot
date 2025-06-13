@@ -31,16 +31,15 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
           />
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
             <Badge
-              variant="destructive"
-              className="absolute top-3 right-3 shadow-lg bg-destructive/90 backdrop-blur-sm text-destructive-foreground cursor-pointer hover:bg-destructive focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 flex items-center gap-1"
+              className="absolute top-3 right-3 shadow-lg backdrop-blur-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 flex items-center gap-1 rainbow-border-animate"
               onClick={() => onAnalyze(item)}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAnalyze(item); }}
               aria-label={`Analyze deal with ${item.discountPercentage}% off`}
             >
-              <Info className="h-3.5 w-3.5 text-white" />
-              <span className="text-white">{item.discountPercentage}% OFF</span>
+              <Info className="h-3.5 w-3.5 text-white text-shadow-strong" />
+              <span className="text-white text-shadow-strong">{item.discountPercentage}% OFF</span>
             </Badge>
           )}
         </div>
@@ -95,4 +94,3 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
 
 export const ItemCard = React.memo(ItemCardComponent);
 ItemCard.displayName = 'ItemCard';
-
