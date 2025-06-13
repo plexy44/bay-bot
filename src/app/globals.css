@@ -77,8 +77,10 @@ body {
     --popover-hsl: 215.3 41.3% 11.2%;   /* #0f172a */
     --popover-foreground-hsl: 210 40% 98%; /* #f8fafc */
 
-    --primary-hsl: 210 40% 98%;        /* #f8fafc (Light Gray for primary UI elements) */
-    --primary-foreground-hsl: 222.9 83.3% 4.9%; /* #020817 (Dark text on light primary elements) */
+    /* primary-hsl and primary-foreground-hsl are for general primary elements.
+       The active tab state is specifically styled below for "dark button, light text". */
+    --primary-hsl: 210 40% 98%;        /* #f8fafc (Light Gray for primary UI elements per PRD) */
+    --primary-foreground-hsl: 222.9 83.3% 4.9%; /* #020817 (Dark text on light primary elements per PRD) */
 
     --secondary-hsl: 215.3 38.5% 17.5%; /* #1e293b */
     --secondary-foreground-hsl: 210 40% 98%; /* #f8fafc (Light text on secondary elements) */
@@ -164,11 +166,27 @@ body {
 }
 
 .baybot-tabs-trigger[data-state=active] {
-  /* Active state styling */
-  @apply bg-primary text-primary-foreground shadow-[0_0_15px_2px_hsla(var(--primary-hsl),0.4),inset_0_0_8px_hsla(var(--primary-foreground-hsl),0.3)];
-  /* Ensure hover on active tab doesn't revert to non-active hover style */
-  @apply hover:bg-primary hover:text-primary-foreground;
+  /* Active state styling - Default (applied in Light Theme) */
+  /* "dark button, light text" for light theme: primary is dark blue, primary-foreground is light gray */
+  @apply bg-primary text-primary-foreground;
+  box-shadow: 0 0 15px 2px hsla(var(--primary-hsl),0.4),inset_0 0 8px hsla(var(--primary-foreground-hsl),0.3);
 }
+.baybot-tabs-trigger[data-state=active]:hover {
+  /* Ensure hover on active tab doesn't revert - Default (Light Theme) */
+  @apply bg-primary text-primary-foreground;
+}
+
+/* Dark theme overrides for active tab to ensure "dark button, light text" */
+.dark .baybot-tabs-trigger[data-state=active] {
+  /* "dark button, light text" for dark theme: card is dark blue, foreground is light gray */
+  @apply bg-card text-foreground; 
+  box-shadow: 0 0 15px 2px hsla(var(--card-hsl),0.4), inset 0 0 8px hsla(var(--foreground-hsl),0.3);
+}
+.dark .baybot-tabs-trigger[data-state=active]:hover {
+  /* Maintain active style on hover in dark mode */
+  @apply bg-card text-foreground;
+}
+
 
 @keyframes pulse-glass {
   0%, 100% {
@@ -190,3 +208,5 @@ body {
 .interactive-glow:hover, .interactive-glow:focus-visible {
   @apply shadow-[0_0_15px_3px_hsla(var(--primary-hsl),0.3)];
 }
+
+    
