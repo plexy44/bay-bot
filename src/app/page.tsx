@@ -9,9 +9,9 @@ import { AnalysisModal } from '@/components/baybot/AnalysisModal';
 import { ItemGridLoadingSkeleton } from '@/components/baybot/LoadingSkeleton';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { BarChart2, ShoppingBag, Search } from "lucide-react";
+import { BarChart2, ShoppingBag, Search, AlertTriangle } from "lucide-react";
 import type { BayBotItem } from '@/types';
-import { fetchItems } from '@/services/ebay-api-service'; // Updated import
+import { fetchItems } from '@/services/ebay-api-service';
 import { rankDeals as rankDealsAI, type Deal as AIDeal, type RankDealsInput } from '@/ai/flows/rank-deals';
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -21,13 +21,14 @@ const ITEMS_PER_PAGE = 8;
 
 export default function HomePage() {
   const [currentView, setCurrentView] = useState<'deals' | 'auctions'>('deals');
-  const [searchQuery, setSearchQuery] = useState(''); // Start with empty search query
+  const [searchQuery, setSearchQuery] = useState('');
   const [displayedItems, setDisplayedItems] = useState<BayBotItem[]>([]);
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
   const [isLoading, setIsLoading] = useState(true);
   const [isRanking, setIsRanking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isAuthError, setIsAuthError] = useState(false);
 
   const [selectedItemForAnalysis, setSelectedItemForAnalysis] = useState<BayBotItem | null>(null);
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
@@ -46,6 +47,7 @@ export default function HomePage() {
   const loadItems = useCallback(async (view: 'deals' | 'auctions', query: string) => {
     setIsLoading(true);
     setError(null);
+    setIsAuthError(false);
     let fetchedItems: BayBotItem[] = [];
     const isCuratedHomepage = view === 'deals' && !query;
 
@@ -57,7 +59,6 @@ export default function HomePage() {
         try {
           const aiRankerInput: RankDealsInput = {
             deals: fetchedItems.map(mapToAIDeal),
-            // For curated homepage, pass an empty query or a generic one to the AI ranker
             query: query || (isCuratedHomepage ? "general deals" : ""), 
           };
           const rankedAIDeals = await rankDealsAI(aiRankerInput);
@@ -71,7 +72,6 @@ export default function HomePage() {
                 return indexA - indexB;
             });
           
-          // After AI ranking, sort by highest discount percentage for deals
           fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
 
           toast({
@@ -87,7 +87,6 @@ export default function HomePage() {
             description: "Displaying default sorted items. AI ranking service might be unavailable.",
             variant: "destructive",
           });
-          // Fallback sort by discount percentage if AI ranking fails
           if (view === 'deals') {
             fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
           }
@@ -95,18 +94,21 @@ export default function HomePage() {
           setIsRanking(false);
         }
       } else if (view === 'deals' && fetchedItems.length > 0) {
-        // Default sort for deals if no query and not curated (or if AI ranking skipped)
         fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-      } else if (view === 'auctions' && fetchedItems.length > 0) {
-        // Auctions are pre-sorted by EndTimeSoonest from API, no additional sort here unless specified
       }
 
       setAllItems(fetchedItems);
       setDisplayedItems(fetchedItems.slice(0, ITEMS_PER_PAGE));
       setVisibleItemCount(ITEMS_PER_PAGE);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to load items:", e);
-      setError(`Failed to load ${view}. Please check your connection or API setup.`);
+      const errorMessage = e.message || `Failed to load ${view}. Please try again.`;
+      if (errorMessage.includes("OAuth") || errorMessage.includes("authenticate with eBay API") || errorMessage.includes("invalid_client")) {
+        setError("eBay API Authentication Failed. Please check your API credentials in the .env file and ensure they have production access. See server logs for more details.");
+        setIsAuthError(true);
+      } else {
+        setError(`Failed to load ${view}. Please check your connection or API setup.`);
+      }
       setAllItems([]);
       setDisplayedItems([]);
     } finally {
@@ -114,12 +116,10 @@ export default function HomePage() {
     }
   }, [toast, mapToAIDeal]);
   
-  // Initial load effect
   useEffect(() => {
-    // Load items based on currentView and searchQuery (which is initially empty)
     loadItems(currentView, searchQuery);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, searchQuery]); // Rerun when view or search query changes
+  }, [currentView, searchQuery]);
 
 
   const handleSearch = (query: string) => {
@@ -128,7 +128,6 @@ export default function HomePage() {
   
   const handleViewChange = (view: 'deals' | 'auctions') => {
     setCurrentView(view);
-    // searchQuery remains, useEffect will trigger loadItems with new view and current query
   };
 
   const handleLoadMore = () => {
@@ -154,15 +153,15 @@ export default function HomePage() {
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
           <Alert variant="destructive" className="mb-6">
-            <BarChart2 className="h-4 w-4" />
-            <AlertTitle>Error</AlertTitle>
+            {isAuthError ? <AlertTriangle className="h-4 w-4" /> : <BarChart2 className="h-4 w-4" />}
+            <AlertTitle>{isAuthError ? "Authentication Error" : "Error"}</AlertTitle>
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
         {(isLoading || isRanking) && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
         
-        {!isLoading && !isRanking && displayedItems.length === 0 && (
+        {!isLoading && !isRanking && displayedItems.length === 0 && !error && (
           <div className="text-center py-10">
             <Search className="mx-auto h-16 w-16 text-muted-foreground mb-4" />
             <h2 className="text-2xl font-headline mb-2">No {currentView} found</h2>
@@ -206,3 +205,4 @@ export default function HomePage() {
     </div>
   );
 }
+
