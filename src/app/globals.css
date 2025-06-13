@@ -20,7 +20,7 @@ body {
     --secondary-hsl: 210 40% 96.1%;
     --secondary-foreground-hsl: 222.2 47.4% 11.2%;
     --muted-hsl: 210 40% 96.1%;
-    --muted-foreground-hsl: 222.2 84% 4.9%; /* Typo corrected from original base, should be muted-foreground */
+    --muted-foreground-hsl: 222.2 84% 4.9%;
     --accent-hsl: 210 40% 96.1%;
     --accent-foreground-hsl: 222.2 47.4% 11.2%;
     --destructive-hsl: 0 84.2% 60.2%;
@@ -56,7 +56,6 @@ body {
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
 
-    /* Sidebar variables remain, assuming they might be used or for consistency */
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -68,36 +67,51 @@ body {
   }
 
   .dark {
-    --background-hsl: 222.2 84% 4.9%;
-    --foreground-hsl: 210 40% 98%;
-    --card-hsl: 216 41% 11%; /* Darker card for more depth in dark mode */
-    --card-foreground-hsl: 210 40% 98%;
-    --popover-hsl: 222.2 84% 4.9%; /* Popovers can match the deep background */
+    /* PRD Color Guidelines:
+        - Background color: Very dark blue (#020817) -> hsl(224, 93%, 5.3%)
+        - Primary color (main text): Light gray (#f8fafc) -> hsl(210, 40%, 98%)
+        - Accent color (secondary elements): Dark gray-blue (#1e293b) -> hsl(215, 38%, 17%)
+        - Card color: (#0f172a) -> hsl(215, 41%, 11%)
+    */
+    --background-hsl: 224 93% 5.3%;   /* #020817 */
+    --foreground-hsl: 210 40% 98%;     /* #f8fafc */
+
+    --card-hsl: 215 41% 11%;          /* #0f172a */
+    --card-foreground-hsl: 210 40% 98%; /* #f8fafc */
+
+    --popover-hsl: 215 41% 11%;        /* Using card color for popovers, or 224 93% 5.3% to match background */
     --popover-foreground-hsl: 210 40% 98%;
-    --primary-hsl: 210 40% 98%; /* Primary interactive elements become light (e.g. white text) */
-    --primary-foreground-hsl: 222.2 47.4% 11.2%; /* Text on primary elements (e.g. dark blue on white button) */
-    --secondary-hsl: 215 28% 17%; /* Secondary elements, slightly lighter than background */
+
+    /* Primary interactive elements in dark mode: Light to contrast with dark background */
+    --primary-hsl: 210 40% 98%;        /* #f8fafc (Light Gray) */
+    --primary-foreground-hsl: 224 93% 5.3%; /* #020817 (Very Dark Blue text on primary elements) */
+
+    /* Secondary/Accent elements in dark mode */
+    --secondary-hsl: 215 38% 17%;      /* #1e293b */
     --secondary-foreground-hsl: 210 40% 98%;
-    --muted-hsl: 215 28% 17%; /* Muted elements, same as secondary for cohesion */
-    --muted-foreground-hsl: 210 40% 60%; /* Muted text, less prominent */
-    --accent-hsl: 215 28% 25%; /* Accent color for highlights, a bit brighter */
+
+    --muted-hsl: 215 38% 17%;          /* #1e293b (Same as secondary for cohesion) */
+    --muted-foreground-hsl: 210 40% 60%; /* Muted text, less prominent light gray */
+
+    --accent-hsl: 215 38% 22%;         /* Slightly lighter version of #1e293b for distinct accent if needed */
     --accent-foreground-hsl: 210 40% 98%;
-    --destructive-hsl: 0 62.8% 30.6%; /* Destructive actions, deep red */
+
+    --destructive-hsl: 0 62.8% 30.6%;
     --destructive-foreground-hsl: 0 0% 98%;
-    --border-hsl: 215 28% 17%; /* Borders, subtle and dark */
-    --input-hsl: 215 28% 17%; /* Input fields, matching border/secondary */
-    --ring-hsl: 210 40% 98%; /* Ring for focus states, light to stand out */
+
+    --border-hsl: 215 38% 17%;         /* #1e293b */
+    --input-hsl: 215 38% 17%;          /* #1e293b */
+    --ring-hsl: 210 40% 98%;           /* #f8fafc (Light Gray for focus rings) */
 
     --background: hsl(var(--background-hsl));
     --foreground: hsl(var(--foreground-hsl));
     
-    /* Adjusted for glassmorphism - these are base colors, components will add backdrop-filter */
-    --card: hsla(var(--card-hsl), 0.7); /* Default card background with some transparency */
+    --card: hsla(var(--card-hsl), 0.7); 
     --card-foreground: hsl(var(--card-foreground-hsl));
     --popover: hsla(var(--popover-hsl), 0.7);
     --popover-foreground: hsl(var(--popover-foreground-hsl));
     
-    --primary: hsl(var(--primary-hsl)); /* For primary interactive elements */
+    --primary: hsl(var(--primary-hsl)); 
     --primary-foreground: hsl(var(--primary-foreground-hsl));
     --secondary: hsla(var(--secondary-hsl), 0.7); 
     --secondary-foreground: hsl(var(--secondary-foreground-hsl));
@@ -108,7 +122,7 @@ body {
     
     --destructive: hsl(var(--destructive-hsl));
     --destructive-foreground: hsl(var(--destructive-foreground-hsl));
-    --border: hsla(var(--border-hsl), 0.5); /* Borders are also somewhat transparent */
+    --border: hsla(var(--border-hsl), 0.5); 
     --input: hsla(var(--input-hsl), 0.5);
     --ring: hsl(var(--ring-hsl));
 
@@ -118,7 +132,6 @@ body {
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
 
-    /* Sidebar variables if needed for dark theme */
     --sidebar-background: hsl(240 5.9% 10%);
     --sidebar-foreground: hsl(240 4.8% 95.9%);
     --sidebar-primary: hsl(224.3 76.3% 48%);
@@ -136,12 +149,9 @@ body {
   }
   body {
     @apply bg-background text-foreground;
-    /* You could add a subtle gradient or noise texture here for better glassmorphism */
-    /* background-image: linear-gradient(to bottom right, hsl(var(--background-hsl)) , hsla(var(--accent-hsl),0.3)); */
   }
 }
 
-/* Glassmorphism utility classes - can be applied to components */
 .glass-card {
   @apply bg-card/60 backdrop-blur-xl border border-border/30 shadow-2xl shadow-primary/5;
 }
@@ -150,7 +160,6 @@ body {
   @apply bg-popover/60 backdrop-blur-lg border border-border/30 shadow-xl shadow-primary/5;
 }
 
-/* Tab Animations & Glow */
 .baybot-tabs-trigger {
   @apply transition-all duration-300 ease-in-out bg-transparent text-primary hover:bg-primary/20;
 }
@@ -158,7 +167,6 @@ body {
   @apply bg-primary text-primary-foreground shadow-[0_0_15px_2px_hsla(var(--primary-hsl),0.4),inset_0_0_8px_hsla(var(--primary-foreground-hsl),0.3)];
 }
 
-/* Skeleton Animation for Glassmorphism */
 @keyframes pulse-glass {
   0%, 100% {
     opacity: 0.7;
@@ -176,7 +184,6 @@ body {
   animation: pulse-glass 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* General Glow for interactive elements on hover/focus */
 .interactive-glow:hover, .interactive-glow:focus-visible {
   @apply shadow-[0_0_15px_3px_hsla(var(--primary-hsl),0.3)];
 }
