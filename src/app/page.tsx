@@ -21,7 +21,7 @@ const ITEMS_PER_PAGE = 8;
 
 export default function HomePage() {
   const [currentView, setCurrentView] = useState<'deals' | 'auctions'>('deals');
-  const [searchQuery, setSearchQuery] = useState(''); // Initialize empty, will be set by useEffect
+  const [searchQuery, setSearchQuery] = useState('');
   const [displayedItems, setDisplayedItems] = useState<BayBotItem[]>([]);
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
@@ -33,6 +33,8 @@ export default function HomePage() {
   const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
 
   const { toast } = useToast();
+
+  const [isInitialQuerySet, setIsInitialQuerySet] = useState(false);
 
   const mapToAIDeal = useCallback((item: BayBotItem): AIDeal => ({
     id: item.id,
@@ -49,7 +51,7 @@ export default function HomePage() {
     try {
       let fetchedItems = await fetchItems(view, query);
       
-      if (query && fetchedItems.length > 0 && view === 'deals') { // AI ranking only for deals with a query
+      if (query && fetchedItems.length > 0 && view === 'deals') {
         setIsRanking(true);
         try {
           const aiRankerInput: RankDealsInput = {
@@ -88,7 +90,6 @@ export default function HomePage() {
         fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
       }
 
-
       setAllItems(fetchedItems);
       setDisplayedItems(fetchedItems.slice(0, ITEMS_PER_PAGE));
       setVisibleItemCount(ITEMS_PER_PAGE);
@@ -101,34 +102,45 @@ export default function HomePage() {
       setIsLoading(false);
     }
   }, [toast, mapToAIDeal]);
-
+  
   useEffect(() => {
-    // Handles initial load (with random search for deals) and subsequent updates.
-    if (!searchQuery && currentView === 'deals') {
-      // If search query is empty and current view is deals (e.g., initial load scenario, or user clears search).
-      // This check ensures Math.random runs client-side.
-      if (typeof window !== "undefined" && popularSearchTerms.length > 0) {
+    let queryToLoad = searchQuery;
+    let shouldLoadItems = true;
+
+    if (!isInitialQuerySet) {
+      if (currentView === 'deals' && searchQuery === '' && typeof window !== "undefined" && popularSearchTerms.length > 0) {
         const randomTerm = popularSearchTerms[Math.floor(Math.random() * popularSearchTerms.length)];
-        setSearchQuery(randomTerm); // This will trigger a re-render and this useEffect will run again with the new query.
-                                    // In the next run, the `else if` block below will execute loadItems.
-      } else if (popularSearchTerms.length === 0) {
-        // Fallback if popularSearchTerms is empty, load with empty query for deals
-        loadItems(currentView, '');
+        setSearchQuery(randomTerm); // This will cause a re-render and this effect to run again
+        setIsInitialQuerySet(true);
+        shouldLoadItems = false; // Don't load in this run; wait for searchQuery to update and effect to re-run
+      } else {
+        // Conditions for initial random search not met (e.g., not deals view, or query already set, or no popular terms)
+        // Mark initial setup as done for the current context.
+        setIsInitialQuerySet(true);
       }
-      // If popularSearchTerms has items but Math.random hasn't run yet, we wait for the re-trigger.
-    } else if (searchQuery || currentView === 'auctions') {
-      // Load items if there's a search query, or if the view is auctions (which doesn't require a query to show something)
-      loadItems(currentView, searchQuery);
+    }
+    
+    if (shouldLoadItems) {
+      loadItems(currentView, queryToLoad);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, searchQuery, loadItems]); // popularSearchTerms is constant, so not strictly needed.
+  }, [currentView, searchQuery, loadItems, isInitialQuerySet]);
+
+
+  // Reset isInitialQuerySet when view changes, so random search can be re-triggered if switching to deals with empty query
+  useEffect(() => {
+    setIsInitialQuerySet(false);
+  }, [currentView]);
+
 
   const handleSearch = (query: string) => {
-    setSearchQuery(query); // Update state, useEffect will handle loading.
+    setSearchQuery(query); 
+    setIsInitialQuerySet(true); // User initiated a search, so consider initial query setup handled
   };
   
   const handleViewChange = (view: 'deals' | 'auctions') => {
-    setCurrentView(view); // Update state, useEffect will handle loading.
+    setCurrentView(view);
+    // isInitialQuerySet will be reset by the dedicated useEffect for currentView change
   };
 
   const handleLoadMore = () => {
@@ -149,7 +161,7 @@ export default function HomePage() {
         onViewChange={handleViewChange}
         onSearch={handleSearch}
         searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery} // Pass setSearchQuery for direct updates from AppHeader (e.g. logo click)
+        setSearchQuery={setSearchQuery} 
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
