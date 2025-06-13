@@ -4,12 +4,15 @@
 import type React from 'react';
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Loader2, AlertTriangle, Sparkles, Zap, Tag, Percent, Info } from "lucide-react";
+import { Loader2, AlertTriangle, Zap } from "lucide-react";
 import type { BayBotItem, AnalysisResult } from '@/types';
 import { analyzeDeal, type AnalyzeDealInput } from '@/ai/flows/analyze-deal';
+
+// New Atomic Component Imports
+import { DealPriceBreakdown } from './atomic/DealPriceBreakdown';
+import { AIScoresDisplay } from './atomic/AIScoresDisplay';
+import { AISummaryDisplay } from './atomic/AISummaryDisplay';
 
 interface AnalysisModalProps {
   item: BayBotItem | null;
@@ -21,7 +24,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [animatedRiskScore, setAnimatedRiskScore] = useState(0);
   const [animatedRarityScore, setAnimatedRarityScore] = useState(0);
 
@@ -54,9 +57,9 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
       };
       performAnalysis();
     } else if (isOpen && item && item.type === 'auction') {
-        setAnalysis(null);
-        setError("AI analysis is currently available for deals only.");
-        setIsLoading(false);
+      setAnalysis(null);
+      setError("AI analysis is currently available for deals only.");
+      setIsLoading(false);
     }
   }, [isOpen, item]);
 
@@ -70,7 +73,6 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
       };
     }
   }, [analysis]);
-
 
   if (!item) return null;
 
@@ -99,70 +101,25 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
             </div>
           )}
 
-          {/* Deal Price Details Section */}
-          {item.type === 'deal' && (item.originalPrice || (item.discountPercentage && item.discountPercentage > 0)) && !isLoading && !error && (
-            <div className="space-y-3 p-4 bg-muted/20 rounded-lg border border-border/30 backdrop-blur-sm mb-4">
-              <h4 className="text-md font-semibold text-foreground flex items-center">
-                <Tag className="w-5 h-5 mr-2 text-primary/80" />
-                Deal Breakdown
-              </h4>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">Current Price:</span>
-                <span className="text-lg font-bold text-primary">£{item.price.toFixed(2)}</span>
-              </div>
-              {item.originalPrice && item.originalPrice > item.price && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">Original Price:</span>
-                  <span className="text-sm text-muted-foreground line-through">£{item.originalPrice.toFixed(2)}</span>
-                </div>
-              )}
-              {item.discountPercentage && item.discountPercentage > 0 && (
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-muted-foreground">You Save:</span>
-                  <Badge variant="destructive" className="text-sm">
-                    <Percent className="h-4 w-4 mr-1" />
-                    {item.discountPercentage}%
-                  </Badge>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* AI Analysis Scores and Summary - only if analysis is successful */}
+          {item.type === 'deal' && !isLoading && !error && <DealPriceBreakdown item={item} /> }
+          
           {analysis && !isLoading && !error && item.type === 'deal' && (
             <>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center mb-1">
-                  <h3 className="text-sm font-medium text-foreground">Risk Score</h3>
-                  <span className="text-sm font-semibold text-primary">{animatedRiskScore}/100</span>
-                </div>
-                <Progress value={animatedRiskScore} aria-label="Risk score" className="h-3 [&>div]:bg-destructive/80 bg-destructive/20 backdrop-blur-sm" />
-                <p className="text-xs text-muted-foreground">Higher score indicates higher risk (e.g., too good to be true, poor seller).</p>
-              </div>
-              <div className="space-y-2">
-                 <div className="flex justify-between items-center mb-1">
-                  <h3 className="text-sm font-medium text-foreground">Rarity Score</h3>
-                   <span className="text-sm font-semibold text-primary">{animatedRarityScore}/100</span>
-                </div>
-                <Progress value={animatedRarityScore} aria-label="Rarity score" className="h-3 [&>div]:bg-primary/80 bg-primary/20 backdrop-blur-sm" />
-                 <p className="text-xs text-muted-foreground">Higher score indicates a rarer find or exceptional value.</p>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium text-foreground mb-1 flex items-center">
-                  <Sparkles className="w-4 h-4 mr-2 text-primary" />
-                  AI Summary
-                </h3>
-                <p className="text-sm bg-secondary/50 p-3 rounded-md text-secondary-foreground leading-relaxed backdrop-blur-sm border border-border/20">{analysis.summary}</p>
-              </div>
+              <AIScoresDisplay
+                analysis={analysis}
+                animatedRiskScore={animatedRiskScore}
+                animatedRarityScore={animatedRarityScore}
+              />
+              <AISummaryDisplay analysis={analysis} />
             </>
           )}
-           {/* Message if AI analysis is loading but price details are shown */}
-           {isLoading && item.type === 'deal' && (item.originalPrice || (item.discountPercentage && item.discountPercentage > 0)) && (
+          
+          {isLoading && item.type === 'deal' && (item.originalPrice || (item.discountPercentage && item.discountPercentage > 0)) && (
              <p className="text-center text-sm text-muted-foreground mt-2">Loading AI insights...</p>
            )}
         </div>
-         <div className="pt-4 border-t border-border/50">
-            <Button onClick={onClose} variant="outline" className="w-full interactive-glow">Close</Button>
+        <div className="pt-4 border-t border-border/50">
+          <Button onClick={onClose} variant="outline" className="w-full interactive-glow">Close</Button>
         </div>
       </DialogContent>
     </Dialog>
