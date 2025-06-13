@@ -2,7 +2,13 @@
 'use server';
 
 import type { BayBotItem } from '@/types';
-import { curatedHomepageSearchTerms } from '@/lib/constants';
+import { 
+  curatedHomepageSearchTerms, 
+  GLOBAL_CURATED_DEALS_REQUEST_MARKER, 
+  GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER,
+  STANDARD_CACHE_TTL_MS,
+  GLOBAL_CURATED_CACHE_TTL_MS
+} from '@/lib/constants';
 
 interface EbayToken {
   access_token: string;
@@ -18,8 +24,6 @@ interface CacheEntry {
   timestamp: number;
 }
 const fetchItemsCache = new Map<string, CacheEntry>();
-const FETCH_ITEMS_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const CURATED_BATCH_SIZE = 3;
 
 async function getEbayAuthToken(): Promise<string> {
   if (ebayToken && Date.now() < ebayToken.fetched_at + (ebayToken.expires_in - 300) * 1000) {
@@ -165,7 +169,7 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
 
     const sellerReputation = browseItem.seller?.feedbackPercentage
       ? parseFloat(browseItem.seller.feedbackPercentage)
-      : 70; // Default reputation if not available
+      : 70; 
 
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
     const hasAuction = browseItem.buyingOptions?.includes('AUCTION');
@@ -176,11 +180,10 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
     } else if (hasAuction && !hasFixedPrice) {
         determinedItemType = 'auction';
     } else if (hasAuction && hasFixedPrice) {
-        determinedItemType = itemTypeFromFilter; // Respect the filter if item has both options
+        determinedItemType = itemTypeFromFilter; 
     }
 
-
-    const description = browseItem.shortDescription || title; // Fallback to title if no short description
+    const description = browseItem.shortDescription || title; 
     const itemLink = browseItem.itemAffiliateWebUrl || browseItem.itemWebUrl;
 
 
@@ -212,61 +215,76 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
   }
 }
 
+function getGlobalCuratedKeywordsApiQueryString(): string {
+  if (curatedHomepageSearchTerms.length === 0) {
+    console.warn("[BayBot getGlobalCuratedKeywordsApiQueryString] Curated terms list is empty. Defaulting to 'popular electronics'.");
+    return encodeURIComponent("popular electronics");
+  }
+  return curatedHomepageSearchTerms.map(term => `(${encodeURIComponent(term)})`).join(' OR ');
+}
+
 
 export const fetchItems = async (
   type: 'deal' | 'auction',
-  query: string,
-  isCuratedHomepage: boolean = false
+  queryIdentifier: string, // This can be a user query or a GLOBAL_..._REQUEST_MARKER
 ): Promise<BayBotItem[]> => {
-  const cacheKey = `browse:${type}:${query}:${isCuratedHomepage}`;
+  const isGlobalDealsRequest = queryIdentifier === GLOBAL_CURATED_DEALS_REQUEST_MARKER;
+  const isGlobalAuctionsRequest = queryIdentifier === GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER;
+  const isGlobalCuratedRequest = isGlobalDealsRequest || isGlobalAuctionsRequest;
+
+  const cacheKey = `browse:${type}:${queryIdentifier}`; // Use queryIdentifier for unique cache key
+  const cacheTTL = isGlobalCuratedRequest ? GLOBAL_CURATED_CACHE_TTL_MS : STANDARD_CACHE_TTL_MS;
 
   if (fetchItemsCache.has(cacheKey)) {
     const cachedEntry = fetchItemsCache.get(cacheKey)!;
-    if (Date.now() - cachedEntry.timestamp < FETCH_ITEMS_CACHE_TTL_MS) {
-      console.log(`[Cache HIT] Returning cached items for key: ${cacheKey}`);
+    if (Date.now() - cachedEntry.timestamp < cacheTTL) {
+      console.log(`[Cache HIT] Returning cached items for key: ${cacheKey} (TTL: ${cacheTTL / 1000}s)`);
       return cachedEntry.data;
     } else {
       fetchItemsCache.delete(cacheKey);
       console.log(`[Cache EXPIRED] Deleted cache for key: ${cacheKey}`);
     }
   }
-  console.log(`[BayBot Fetch Cache MISS] Fetching items for key: ${cacheKey}. Type: "${type}", Query: "${query}", Curated: ${isCuratedHomepage}`);
+  console.log(`[BayBot Fetch Cache MISS] Fetching items for key: ${cacheKey}. Type: "${type}", Query Identifier: "${queryIdentifier}"`);
 
   const authToken = await getEbayAuthToken();
-  const keywordsForApi = query;
+  
+  let keywordsForApi: string;
+  if (isGlobalCuratedRequest) {
+    keywordsForApi = getGlobalCuratedKeywordsApiQueryString();
+    console.log(`[BayBot Fetch] Global curated request. Actual API query: "${keywordsForApi}"`);
+  } else {
+    keywordsForApi = queryIdentifier; // User's search query
+  }
 
   if (!keywordsForApi) {
-      console.warn(`[BayBot Fetch] Query was empty for type "${type}". Returning empty array.`);
+      console.warn(`[BayBot Fetch] keywordsForApi was empty for type "${type}", queryIdentifier "${queryIdentifier}". Returning empty array.`);
       return [];
   }
 
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search');
   browseApiUrl.searchParams.append('q', keywordsForApi);
-  browseApiUrl.searchParams.append('limit', '100');
+  browseApiUrl.searchParams.append('limit', '100'); // Fetch more to have a good pool
 
   let filterOptions = ['itemLocationCountry:GB'];
   let sortOption = ''; 
 
-  console.log(`[BayBot Fetch Logic] Preparing API call. Type: "${type}", Query: "${keywordsForApi}", Curated: ${isCuratedHomepage}`);
+  console.log(`[BayBot Fetch Logic] Preparing API call. Type: "${type}", Query for API: "${keywordsForApi}", isGlobalCurated: ${isGlobalCuratedRequest}`);
 
   if (type === 'deal') {
-    console.log(`[BayBot Fetch Logic] Applying 'deal' specific filters and sort.`);
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
-    if (isCuratedHomepage) {
-      filterOptions.push('price:[20..]'); 
-    } else {
-      filterOptions.push('price:[100..]'); 
-    }
+    // Use a more restrictive price for user searches, less for global curated
+    filterOptions.push(isGlobalCuratedRequest ? 'price:[20..]' : 'price:[100..]');
     filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}');
-    sortOption = 'bestMatch';
+    sortOption = 'bestMatch'; 
   } else if (type === 'auction') {
-    console.log(`[BayBot Fetch Logic] Applying 'auction' specific filters and sort.`);
     filterOptions.push('buyingOptions:{AUCTION}');
     sortOption = 'itemEndDate'; 
   } else {
+    // Fallback, should not happen if type is strictly 'deal' | 'auction'
     console.warn(`[BayBot Fetch Logic] Unexpected type: "${type}". Defaulting to 'deal' logic.`);
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
-    filterOptions.push('price:[20..]'); 
+    filterOptions.push('price:[20..]');
     filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}');
     sortOption = 'bestMatch';
   }
@@ -290,19 +308,29 @@ export const fetchItems = async (
       cache: 'no-store',
     });
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error(`eBay Browse API request failed: ${response.status} for query "${keywordsForApi}", type "${type}". URL: ${browseApiUrl.toString()}. Body: ${errorBody}`);
-      throw new Error(`Failed to fetch from eBay Browse API (status ${response.status}). Check server logs for more details. eBay's response: ${errorBody.substring(0, 500)}`);
+    const responseDataText = await response.text(); // Read text first for robust error handling
+    let data;
+    try {
+        data = JSON.parse(responseDataText);
+    } catch (jsonParseError) {
+        console.error(`eBay Browse API response was not valid JSON for query "${keywordsForApi}", type "${type}". URL: ${browseApiUrl.toString()}. Response text: ${responseDataText.substring(0, 500)}`);
+        throw new Error(`Failed to parse eBay API response as JSON. Response text: ${responseDataText.substring(0, 200)}...`);
     }
-
-    const data = await response.json();
-    // console.log(`[BayBot Fetch] eBay API response for query "${keywordsForApi}": ${data.total ?? 0} items found initially.`);
-
-
+    
+    if (!response.ok) {
+      console.error(`eBay Browse API request failed: ${response.status} for query "${keywordsForApi}", type "${type}". URL: ${browseApiUrl.toString()}. Body: ${JSON.stringify(data, null, 2)}`);
+      // Do not throw error here if there's a warning about sort, just return empty and log
+      if (data.warnings && data.warnings.some((w: any) => w.message && w.message.includes("The 'sort' value is invalid"))) {
+        console.warn(`[BayBot Fetch eBay Response] eBay API returned 'invalid sort value' warning. Query: "${keywordsForApi}", Type: "${type}", Sort: "${sortOption}". Returning empty list. Full warnings:`, JSON.stringify(data.warnings, null, 2));
+        fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() }); // Cache empty result
+        return [];
+      }
+      throw new Error(`Failed to fetch from eBay Browse API (status ${response.status}). Check server logs for more details. eBay's response: ${JSON.stringify(data, null, 2).substring(0, 500)}`);
+    }
+    
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
-      const warningMessage = `[BayBot Fetch eBay Response] No items found or unexpected API response structure from eBay for query: "${keywordsForApi}", type: "${type}". URL: ${browseApiUrl.toString()}. eBay Data: ${JSON.stringify(data, null, 2)}`;
-      console.warn(warningMessage);
+      const warningMessage = `[BayBot Fetch eBay Response] No items found or unexpected API response structure from eBay for query: "${keywordsForApi}", type: "${type}". URL: ${browseApiUrl.toString()}.`;
+      console.warn(warningMessage, `eBay Data: ${JSON.stringify(data, null, 2)}`);
        if (data.warnings && data.warnings.length > 0) {
         console.warn(`[BayBot Fetch eBay Response] eBay API Warnings:`, JSON.stringify(data.warnings, null, 2));
       }
@@ -319,7 +347,7 @@ export const fetchItems = async (
     console.log(`[BayBot Fetch] Transformed ${transformedItems.length} items for query "${keywordsForApi}".`);
 
     fetchItemsCache.set(cacheKey, { data: transformedItems, timestamp: Date.now() });
-    console.log(`[Cache SET] Cached ${transformedItems.length} items for key: ${cacheKey}`);
+    console.log(`[Cache SET] Cached ${transformedItems.length} items for key: ${cacheKey} (TTL: ${cacheTTL / 1000}s)`);
 
     return transformedItems;
 
@@ -342,23 +370,4 @@ export async function getRandomPopularSearchTerm(): Promise<string> {
   }
   const randomIndex = Math.floor(Math.random() * curatedHomepageSearchTerms.length);
   return curatedHomepageSearchTerms[randomIndex];
-}
-
-export async function getBatchedCuratedKeywordsQuery(): Promise<string> {
-  if (curatedHomepageSearchTerms.length === 0) {
-    console.warn("[BayBot getBatchedCuratedKeywordsQuery] Curated homepage search terms list is empty. Defaulting to 'popular electronics'.");
-    return "popular electronics";
-  }
-
-  const shuffled = [...curatedHomepageSearchTerms].sort(() => 0.5 - Math.random());
-  // Ensure batchSize is at least 1 and not more than the number of available terms or CURATED_BATCH_SIZE
-  const batchSize = Math.max(1, Math.min(CURATED_BATCH_SIZE, shuffled.length)); 
-  const selectedTerms = shuffled.slice(0, batchSize);
-
-  if (selectedTerms.length === 0) {
-    console.warn("[BayBot getBatchedCuratedKeywordsQuery] No terms selected after shuffling. Defaulting to 'featured deals'.");
-    return "featured deals"; 
-  }
-  // Format: (keyword1) OR (keyword2) OR (keyword3)
-  return selectedTerms.map(term => `(${encodeURIComponent(term)})`).join(' OR ');
 }

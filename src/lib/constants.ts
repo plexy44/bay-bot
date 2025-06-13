@@ -38,3 +38,9 @@ export const curatedHomepageSearchTerms: string[] = [
   'tablet',
   'drone'
 ];
+
+export const GLOBAL_CURATED_DEALS_REQUEST_MARKER = "__GLOBAL_DEALS__";
+export const GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER = "__GLOBAL_AUCTIONS__";
+
+export const STANDARD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+export const GLOBAL_CURATED_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour

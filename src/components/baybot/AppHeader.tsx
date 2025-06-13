@@ -4,12 +4,12 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search } from "lucide-react";
-import { getRandomPopularSearchTerm } from '@/services/ebay-api-service';
+// Removed getRandomPopularSearchTerm import as logo click now just clears search
 
 interface AppHeaderProps {
   currentView: 'deals' | 'auctions';
   onViewChange: (view: 'deals' | 'auctions') => void;
-  onSearch: (query: string) => void; // Retained for explicit search trigger if needed elsewhere
+  onSearch: (query: string) => void; 
   searchQuery: string;
   setSearchQuery: (query: string) => void;
 }
@@ -18,17 +18,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSearch(searchQuery); // Prop function from page.tsx, which calls setSearchQuery
+    onSearch(searchQuery); // This will pass the current input value to page.tsx
   };
 
-  const handleLogoClick = async () => {
-    const randomTerm = await getRandomPopularSearchTerm();
+  const handleLogoClick = () => {
+    // Set to 'deals' view and clear search query to trigger global curated deals
     if (currentView !== 'deals') {
-      onViewChange('deals'); // This will also clear searchQuery in page.tsx's handleViewChange
+      onViewChange('deals'); 
     }
-    // setSearchQuery will trigger useEffect in page.tsx if currentView is already 'deals'
-    // or if currentView becomes 'deals' and then searchQuery is set.
-    setSearchQuery(randomTerm);
+    setSearchQuery(''); // Clearing search query signals a global curated request in page.tsx
+    onSearch(''); // Trigger the search with an empty query
   };
 
   return (
@@ -38,7 +37,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
           <button
             onClick={handleLogoClick}
             className="text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-            aria-label="BayBot - Search random deals"
+            aria-label="BayBot - View Curated Homepage"
           >
             BayBot
           </button>
