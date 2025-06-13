@@ -3,7 +3,7 @@
 
 import type React from 'react';
 import { Badge } from "@/components/ui/badge";
-import { Tag, Percent } from "lucide-react";
+import { Tag } from "lucide-react"; // Removed Percent icon import
 import type { BayBotItem } from '@/types';
 
 interface DealPriceBreakdownProps {
@@ -35,7 +35,7 @@ export const DealPriceBreakdown: React.FC<DealPriceBreakdownProps> = ({ item }) 
         <div className="flex justify-between items-center">
           <span className="text-sm text-muted-foreground">You Save:</span>
           <Badge variant="destructive" className="text-sm">
-            <Percent className="h-4 w-4 mr-1" />
+            {/* Removed Percent icon, just show number and % symbol */}
             {item.discountPercentage}%
           </Badge>
         </div>
@@ -43,3 +43,4 @@ export const DealPriceBreakdown: React.FC<DealPriceBreakdownProps> = ({ item }) 
     </div>
   );
 };
+
