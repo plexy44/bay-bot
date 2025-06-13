@@ -2,7 +2,7 @@
 'use server';
 
 import type { BayBotItem } from '@/types';
-import { popularSearchTermsForLogoClick } from '@/lib/constants';
+import { curatedHomepageSearchTerms } from '@/lib/constants';
 
 interface EbayToken {
   access_token: string;
@@ -49,7 +49,6 @@ async function getEbayAuthToken(): Promise<string> {
     if (!response.ok) {
       const errorBody = await response.text();
       console.error(`eBay OAuth request failed with status ${response.status}: ${errorBody}`);
-      // Throw a specific error that includes eBay's response
       throw new Error(`eBay OAuth request failed with status ${response.status}. eBay's response: ${errorBody}`);
     }
 
@@ -62,14 +61,12 @@ async function getEbayAuthToken(): Promise<string> {
     return ebayToken!.access_token;
   } catch (error) {
     console.error('Detailed error during eBay OAuth token fetch:', error);
-    if (error instanceof Error) { // Check if error is an instance of Error
-        // Re-throw specific, informative errors or wrap them
+    if (error instanceof Error) {
         if (error.message.includes('eBay OAuth request failed') || error.message.includes('invalid_client')) {
             throw error;
         }
         throw new Error(`Failed to authenticate with eBay API: ${error.message}. Please check server logs for more details and ensure eBay API credentials in .env are correct and have production access.`);
     }
-    // Fallback for other types of errors during token fetch
     throw new Error('Failed to authenticate with eBay API due to an unknown error. Please check server logs for more details.');
   }
 }
@@ -229,7 +226,7 @@ export const fetchItems = async (
 
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search'); 
   browseApiUrl.searchParams.append('q', keywords);
-  browseApiUrl.searchParams.append('limit', '100'); // Changed limit from 20 to 100
+  browseApiUrl.searchParams.append('limit', '100');
 
   let filterOptions = ['itemLocationCountry:GB'];
   if (type === 'deal') {
@@ -289,7 +286,6 @@ export const fetchItems = async (
 };
 
 export async function getRandomPopularSearchTerm(): Promise<string> {
-  if (popularSearchTermsForLogoClick.length === 0) return "tech deals"; 
-  return popularSearchTermsForLogoClick[Math.floor(Math.random() * popularSearchTermsForLogoClick.length)];
+  if (curatedHomepageSearchTerms.length === 0) return "tech deals"; 
+  return curatedHomepageSearchTerms[Math.floor(Math.random() * curatedHomepageSearchTerms.length)];
 }
-
