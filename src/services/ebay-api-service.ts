@@ -165,18 +165,25 @@ function transformBrowseItem(browseItem: BrowseApiItemSummary, itemTypeFromFilte
 
     const sellerReputation = browseItem.seller?.feedbackPercentage
       ? parseFloat(browseItem.seller.feedbackPercentage)
-      : 70;
+      : 70; // Default reputation if not available
 
+    // Determine item type based on buyingOptions, falling back to filter if ambiguous
     let determinedItemType: 'deal' | 'auction' = itemTypeFromFilter;
-    if (browseItem.buyingOptions?.includes('FIXED_PRICE') && !browseItem.buyingOptions?.includes('AUCTION')) {
-        determinedItemType = 'deal';
-    } else if (browseItem.buyingOptions?.includes('AUCTION') && !browseItem.buyingOptions?.includes('FIXED_PRICE')) {
-        determinedItemType = 'auction';
-    } else if (browseItem.buyingOptions?.includes('AUCTION') && browseItem.buyingOptions?.includes('FIXED_PRICE')) {
-        determinedItemType = itemTypeFromFilter; // Default to filter if both are present
-    }
+    const hasAuction = browseItem.buyingOptions?.includes('AUCTION');
+    const hasFixedPrice = browseItem.buyingOptions?.includes('FIXED_PRICE');
 
-    const description = browseItem.shortDescription || title;
+    if (hasFixedPrice && !hasAuction) {
+        determinedItemType = 'deal';
+    } else if (hasAuction && !hasFixedPrice) {
+        determinedItemType = 'auction';
+    } else if (hasAuction && hasFixedPrice) {
+        // If both options are present, prefer the type passed from the initial filter
+        determinedItemType = itemTypeFromFilter;
+    }
+    // If neither is present, it's unusual, stick with itemTypeFromFilter as a last resort.
+
+
+    const description = browseItem.shortDescription || title; // Use title as fallback for description
     const itemLink = browseItem.itemAffiliateWebUrl || browseItem.itemWebUrl;
 
 
@@ -226,7 +233,7 @@ export const fetchItems = async (
       console.log(`[Cache EXPIRED] Deleted cache for key: ${cacheKey}`);
     }
   }
-  console.log(`[Cache MISS] Fetching items from Browse API for key: ${cacheKey}`);
+  console.log(`[Cache MISS] Fetching items from Browse API for key: ${cacheKey}. Query: "${query}", Type: ${type}, Curated: ${isCuratedHomepage}`);
 
   const authToken = await getEbayAuthToken();
 
@@ -244,12 +251,17 @@ export const fetchItems = async (
   if (type === 'deal') {
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
     filterOptions.push('conditions:{NEW|USED|MANUFACTURER_REFURBISHED}');
-    filterOptions.push('price:[100..]'); // Updated minimum price for deals
-  } else {
+    if (isCuratedHomepage) {
+      filterOptions.push('price:[20..]'); // Less restrictive for curated homepage deals
+    } else {
+      filterOptions.push('price:[100..]'); // Stricter for user-initiated deal searches
+    }
+  } else { // 'auction'
     filterOptions.push('buyingOptions:{AUCTION}');
     browseApiUrl.searchParams.append('sort', '-itemEndDate');
   }
   browseApiUrl.searchParams.append('filter', filterOptions.join(','));
+  console.log(`[BayBot Fetch] eBay API URL: ${browseApiUrl.toString()}`);
 
 
   try {
@@ -269,6 +281,8 @@ export const fetchItems = async (
     }
 
     const data = await response.json();
+    console.log(`[BayBot Fetch] eBay API response for query "${keywordsForApi}": ${data.total ?? 0} items found initially.`);
+
 
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
       console.warn('No items found or unexpected API response structure from eBay Browse API for query:', keywordsForApi, 'type:', type, 'Data:', JSON.stringify(data, null, 2));
@@ -281,6 +295,8 @@ export const fetchItems = async (
     const transformedItems = browseItems
       .map(browseItem => transformBrowseItem(browseItem, type))
       .filter((item): item is BayBotItem => item !== null);
+    
+    console.log(`[BayBot Fetch] Transformed ${transformedItems.length} items for query "${keywordsForApi}".`);
 
     fetchItemsCache.set(cacheKey, { data: transformedItems, timestamp: Date.now() });
     console.log(`[Cache SET] Cached ${transformedItems.length} items for key: ${cacheKey}`);
@@ -315,13 +331,14 @@ export async function getBatchedCuratedKeywordsQuery(): Promise<string> {
   }
 
   const shuffled = [...curatedHomepageSearchTerms].sort(() => 0.5 - Math.random());
-  const batchSize = Math.min(CURATED_BATCH_SIZE, shuffled.length);
+  // Ensure at least 1 term is selected, up to CURATED_BATCH_SIZE
+  const batchSize = Math.max(1, Math.min(CURATED_BATCH_SIZE, shuffled.length)); 
   const selectedTerms = shuffled.slice(0, batchSize);
 
   if (selectedTerms.length === 0) {
-    return "featured deals";
+    // This case should ideally not be reached due to Math.max(1, ...)
+    return "featured deals"; 
   }
 
   return selectedTerms.map(term => `(${term})`).join(' OR ');
 }
-
