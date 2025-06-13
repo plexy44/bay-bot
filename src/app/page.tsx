@@ -26,7 +26,7 @@ import {
 
 
 const ITEMS_PER_PAGE = 8;
-
+const CURATED_DEALS_CACHE_KEY = 'cachedCuratedDeals';
 
 const AnalysisModal = dynamic(() =>
   import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
@@ -54,19 +54,46 @@ function HomePageContent() {
 
   const loadItems = useCallback(async (queryToLoad: string) => {
     console.log(`[HomePage loadItems] Initiating. Query to load: "${queryToLoad}"`);
+    
+    const isGlobalCuratedRequest = queryToLoad === '';
+
+    // Initial state setup
     setAllItems([]);
     setDisplayedItems([]);
+    setVisibleItemCount(ITEMS_PER_PAGE);
     setIsLoading(true);
     setIsRanking(false);
     setError(null);
     setIsAuthError(false);
 
+    if (isGlobalCuratedRequest) {
+      try {
+        const cachedDataString = sessionStorage.getItem(CURATED_DEALS_CACHE_KEY);
+        if (cachedDataString) {
+          const cachedData = JSON.parse(cachedDataString);
+          if (cachedData && cachedData.items) {
+            console.log(`[HomePage loadItems] Found ${cachedData.items.length} curated deals in sessionStorage. Displaying them.`);
+            setAllItems(cachedData.items);
+            setDisplayedItems(cachedData.items.slice(0, ITEMS_PER_PAGE));
+            setVisibleItemCount(ITEMS_PER_PAGE);
+            setIsLoading(false);
+            toast({ title: "Loaded Cached Curated Deals", description: "Displaying previously fetched deals for this session." });
+            return; // Exit if cached data is successfully loaded
+          }
+        }
+      } catch (e) {
+        console.warn("[HomePage loadItems] Error reading or parsing curated deals from sessionStorage:", e);
+        sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY); // Clear potentially corrupted cache
+      }
+    }
+    
+    // Proceed with fetching if not a global curated request or if cache was not hit/valid
+
     let finalProcessedItems: BayBotItem[] = [];
     const processedItemIds = new Set<string>();
     let fetchAttempts = 0;
     let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
-    const isGlobalCuratedRequest = queryToLoad === '';
-
+    
     if (!isGlobalCuratedRequest) {
       // Standard user search logic
       const effectiveQueryForEbay = queryToLoad;
@@ -81,7 +108,7 @@ function HomePageContent() {
           const aiQualifiedAndRankedItems: BayBotItem[] = await rankDealsAI(fetchedItems, aiQueryContext);
           const aiCount = aiQualifiedAndRankedItems.length;
 
-          finalProcessedItems = [...aiQualifiedAndRankedItems]; // Start with AI qualified
+          finalProcessedItems = [...aiQualifiedAndRankedItems];
           console.log(`[HomePage loadItems] AI qualified and ranked ${aiCount} deals for query "${aiQueryContext}".`);
 
           if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < fetchedItems.length) {
@@ -92,8 +119,8 @@ function HomePageContent() {
             overallToastMessage = { title: "Deals: AI Enhanced", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}", plus ${fallbackItems.length} more.` };
           } else if (aiCount > 0) {
             overallToastMessage = { title: "Deals: AI Qualified", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}".` };
-          } else { // AI returned no items
-            finalProcessedItems = fetchedItems; // Fallback to server-processed list
+          } else { 
+            finalProcessedItems = fetchedItems; 
             overallToastMessage = { title: "Deals: Server Processed", description: `Displaying server-processed deals for "${queryToLoad}". AI found no further qualifications.` };
             console.warn(`[HomePage loadItems] AI qualification returned no items for query "${aiQueryContext}". Using server-processed list (${fetchedItems.length} items) as fallback.`);
           }
@@ -123,13 +150,12 @@ function HomePageContent() {
     } else {
       // Iterative curated deals fetching logic
       console.log(`[HomePage loadItems] Starting curated deals fetch loop. Target: ${MIN_DESIRED_CURATED_DEALS} items. Max attempts: ${MAX_CURATED_FETCH_ATTEMPTS}.`);
-      setIsLoading(true); // Ensure loading is true at the start of the loop process
-
+      
       while (finalProcessedItems.length < MIN_DESIRED_CURATED_DEALS && fetchAttempts < MAX_CURATED_FETCH_ATTEMPTS) {
         fetchAttempts++;
         console.log(`[HomePage loadItems] Curated fetch attempt ${fetchAttempts}/${MAX_CURATED_FETCH_ATTEMPTS}. Current items: ${finalProcessedItems.length}`);
         
-        if (fetchAttempts > 1 || finalProcessedItems.length > 0) { // Show ranking spinner for subsequent attempts or if we already have some items
+        if (fetchAttempts > 1 || finalProcessedItems.length > 0) {
              setIsRanking(true);
         }
 
@@ -139,7 +165,7 @@ function HomePageContent() {
 
           if (newUniqueFetchedItems.length === 0) {
             console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: No new unique items fetched. Skipping AI for this batch.`);
-            setIsRanking(false); // Turn off ranking if it was on for this attempt
+            setIsRanking(false);
             if (fetchAttempts === MAX_CURATED_FETCH_ATTEMPTS && finalProcessedItems.length === 0) {
               overallToastMessage = { title: "No Curated Deals", description: "Could not find enough curated deals after several attempts." };
             }
@@ -147,7 +173,7 @@ function HomePageContent() {
           }
           
           console.log(`[HomePage loadItems] Attempt ${fetchAttempts}: Fetched ${fetchedItemsFromAttempt.length} items (${newUniqueFetchedItems.length} new). Sending to AI.`);
-          setIsRanking(true); // Ensure ranking is true before AI call if new items exist
+          setIsRanking(true);
 
           const aiQueryContext = "general curated deals";
           const aiQualifiedForBatch: BayBotItem[] = await rankDealsAI(newUniqueFetchedItems, aiQueryContext);
@@ -194,9 +220,9 @@ function HomePageContent() {
             setError("Failed to load sufficient curated deals after multiple attempts.");
           }
         } finally {
-          setIsRanking(false); // Turn off ranking spinner for this batch
+          setIsRanking(false); 
         }
-      } // End of while loop
+      } 
 
       if (finalProcessedItems.length > 0 && !error) {
         overallToastMessage = {
@@ -213,17 +239,28 @@ function HomePageContent() {
 
     setAllItems(finalProcessedItems);
     setDisplayedItems(finalProcessedItems.slice(0, ITEMS_PER_PAGE));
-    setVisibleItemCount(ITEMS_PER_PAGE);
+    setVisibleItemCount(ITEMS_PER_PAGE); // Ensure this is reset correctly
     setIsLoading(false);
     setIsRanking(false);
-    console.log(`[HomePage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} total items. Attempts: ${fetchAttempts}`);
+    console.log(`[HomePage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} total items. Fetch attempts (if curated): ${fetchAttempts}`);
 
     if (overallToastMessage && !error) {
       toast(overallToastMessage);
     } else if (error && !isAuthError) {
       toast({ title: "Error Loading Deals", description: error || "An unexpected error occurred.", variant: "destructive" });
     }
-  }, [toast]); // Removed visibleItemCount from dependencies
+
+    // Save to sessionStorage if it was a successful global curated request
+    if (isGlobalCuratedRequest && !error) {
+      try {
+        sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: finalProcessedItems, timestamp: Date.now() }));
+        console.log(`[HomePage loadItems] Saved ${finalProcessedItems.length} curated deals to sessionStorage.`);
+      } catch (e) {
+        console.warn("[HomePage loadItems] Error saving curated deals to sessionStorage:", e);
+      }
+    }
+
+  }, [toast]);
 
   useEffect(() => {
     console.log(`[HomePage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
