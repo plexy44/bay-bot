@@ -67,74 +67,73 @@ body {
   }
 
   .dark {
-    /* BayBot Dark Theme - PRD Aligned */
-    --background-hsl: 222.9 83.3% 4.9%; /* #020817 */
-    --foreground-hsl: 210 40% 98%;    /* #f8fafc */
+    /* BayBot Dark Theme - Matrix Inspired */
+    --background-hsl: 220 15% 5%;      /* Very dark, slightly desaturated blue/grey */
+    --foreground-hsl: 120 100% 50%;    /* Matrix Green for text */
 
-    --card-hsl: 215.3 41.3% 11.2%;      /* #0f172a */
-    --card-foreground-hsl: 210 40% 98%;/* #f8fafc */
+    --card-hsl: 220 15% 8%;            /* Slightly lighter than background for depth */
+    --card-foreground-hsl: 120 100% 50%; /* Matrix Green text on cards */
 
-    --popover-hsl: 215.3 41.3% 11.2%;   /* #0f172a */
-    --popover-foreground-hsl: 210 40% 98%; /* #f8fafc */
+    --popover-hsl: 220 15% 8%;          /* Consistent with card */
+    --popover-foreground-hsl: 120 100% 50%; /* Consistent with card foreground */
 
-    /* primary-hsl and primary-foreground-hsl are for general primary elements.
-       The active tab state is specifically styled below for "dark button, light text". */
-    --primary-hsl: 210 40% 98%;        /* #f8fafc (Light Gray for primary UI elements per PRD) */
-    --primary-foreground-hsl: 222.9 83.3% 4.9%; /* #020817 (Dark text on light primary elements per PRD) */
+    --primary-hsl: 120 70% 35%;        /* Darker, rich Matrix Green for primary button backgrounds */
+    --primary-foreground-hsl: 120 80% 90%; /* Very light green/white text on primary green buttons */
 
-    --secondary-hsl: 215.3 38.5% 17.5%; /* #1e293b */
-    --secondary-foreground-hsl: 210 40% 98%; /* #f8fafc (Light text on secondary elements) */
+    --secondary-hsl: 220 10% 12%;      /* Dark grey for secondary button backgrounds or areas */
+    --secondary-foreground-hsl: 120 80% 65%; /* Lighter Matrix green for text on these secondary areas */
 
-    --muted-hsl: 215.3 38.5% 17.5%;      /* #1e293b for general muted backgrounds/borders */
-    --muted-foreground-hsl: 215.3 20.1% 60.1%; /* #94a3b8 - (Original: 210 40% 60%) */
+    --muted-hsl: 220 10% 10%;          /* Dark grey for less important backgrounds/dividers */
+    --muted-foreground-hsl: 120 70% 40%; /* Dimmer Matrix green for muted text */
 
-    --accent-hsl: 215.3 38.5% 22%; /* #28354b - Slightly lighter than secondary for subtle accents */
-    --accent-foreground-hsl: 210 40% 98%; /* #f8fafc */
+    --accent-hsl: 120 80% 45%;          /* A brighter green accent for hover or specific highlights */
+    --accent-foreground-hsl: 220 15% 95%; /* Very light, almost white text if on this brighter green accent */
 
-    --destructive-hsl: 0 62.8% 30.6%; /* #991b1b - Darker red (Original: 0 72.2% 50.6%) */
-    --destructive-foreground-hsl: 210 40% 98%; /* #f8fafc */
+    --destructive-hsl: 0 70% 50%;       /* Standard vibrant red for destructive actions */
+    --destructive-foreground-hsl: 0 0% 98%; /* Light text on red */
 
-    --border-hsl: 215.3 38.5% 17.5%;   /* #1e293b for borders */
-    --input-hsl: 215.3 38.5% 17.5%;    /* #1e293b for input backgrounds */
-    --ring-hsl: 210 40% 98%;           /* #f8fafc Light Gray for focus rings */
+    --border-hsl: 120 50% 25%;          /* Dark green for borders, subtle */
+    --input-hsl: 220 10% 9%;            /* Very dark input backgrounds */
+    --ring-hsl: 120 100% 55%;           /* Bright Matrix green for focus rings */
 
+    /* Ensure derived CSS variables use the new HSL values */
     --background: hsl(var(--background-hsl));
     --foreground: hsl(var(--foreground-hsl));
 
-    --card: hsla(var(--card-hsl), 0.7);
+    --card: hsla(var(--card-hsl), 0.7); /* Kept transparency for glassmorphism */
     --card-foreground: hsl(var(--card-foreground-hsl));
-    --popover: hsla(var(--popover-hsl), 0.7);
+    --popover: hsla(var(--popover-hsl), 0.7); /* Kept transparency */
     --popover-foreground: hsl(var(--popover-foreground-hsl));
 
     --primary: hsl(var(--primary-hsl));
     --primary-foreground: hsl(var(--primary-foreground-hsl));
-    --secondary: hsla(var(--secondary-hsl), 0.7);
+    --secondary: hsla(var(--secondary-hsl), 0.7); /* Kept transparency */
     --secondary-foreground: hsl(var(--secondary-foreground-hsl));
-    --muted: hsla(var(--muted-hsl), 0.7);
+    --muted: hsla(var(--muted-hsl), 0.7); /* Kept transparency */
     --muted-foreground: hsl(var(--muted-foreground-hsl));
-    --accent: hsla(var(--accent-hsl), 0.7);
+    --accent: hsla(var(--accent-hsl), 0.7); /* Kept transparency */
     --accent-foreground: hsl(var(--accent-foreground-hsl));
 
     --destructive: hsl(var(--destructive-hsl));
     --destructive-foreground: hsl(var(--destructive-foreground-hsl));
-    --border: hsla(var(--border-hsl), 0.5);
-    --input: hsla(var(--input-hsl), 0.5);
+    --border: hsla(var(--border-hsl), 0.5); /* Kept transparency */
+    --input: hsla(var(--input-hsl), 0.5); /* Kept transparency */
     --ring: hsl(var(--ring-hsl));
 
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+    --chart-1: 120 70% 50%; /* Matrix Green shades for charts */
+    --chart-2: 120 60% 40%;
+    --chart-3: 120 80% 60%;
+    --chart-4: 120 50% 30%;
+    --chart-5: 120 90% 70%;
 
-    --sidebar-background: hsl(240 5.9% 10%);
-    --sidebar-foreground: hsl(240 4.8% 95.9%);
-    --sidebar-primary: hsl(224.3 76.3% 48%);
-    --sidebar-primary-foreground: hsl(0 0% 100%);
-    --sidebar-accent: hsl(240 3.7% 15.9%);
-    --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
-    --sidebar-border: hsl(240 3.7% 15.9%);
-    --sidebar-ring: hsl(217.2 91.2% 59.8%);
+    --sidebar-background: hsl(220 15% 7%);
+    --sidebar-foreground: hsl(120 90% 60%);
+    --sidebar-primary: hsl(120 70% 40%);
+    --sidebar-primary-foreground: hsl(120 80% 90%);
+    --sidebar-accent: hsl(120 50% 20%);
+    --sidebar-accent-foreground: hsl(120 90% 70%);
+    --sidebar-border: hsl(120 50% 15%);
+    --sidebar-ring: hsl(120 100% 55%);
   }
 }
 
@@ -165,21 +164,23 @@ body {
   @apply bg-accent text-accent-foreground;
 }
 
+/* Light theme active tab */
 .baybot-tabs-trigger[data-state=active] {
-  /* Active state styling - Default (applied in Light Theme) */
-  /* "dark button, light text" for light theme: primary is dark blue, primary-foreground is light gray */
   @apply bg-primary text-primary-foreground;
   box-shadow: 0 0 15px 2px hsla(var(--primary-hsl),0.4),inset_0 0 8px hsla(var(--primary-foreground-hsl),0.3);
 }
 .baybot-tabs-trigger[data-state=active]:hover {
-  /* Ensure hover on active tab doesn't revert - Default (Light Theme) */
   @apply bg-primary text-primary-foreground;
 }
 
-/* Dark theme overrides for active tab to ensure "dark button, light text" */
+/* Dark theme overrides for active tab to ensure "dark button, light text (Matrix Green)" */
 .dark .baybot-tabs-trigger[data-state=active] {
-  /* "dark button, light text" for dark theme: card is dark blue, foreground is light gray */
-  @apply bg-card text-foreground; 
+  /* In dark (Matrix) theme:
+     --card-hsl is very dark (e.g., 220 15% 8%)
+     --foreground-hsl is Matrix Green (e.g., 120 100% 50%)
+     This creates a "dark button" with "Matrix Green text".
+  */
+  @apply bg-card text-foreground;
   box-shadow: 0 0 15px 2px hsla(var(--card-hsl),0.4), inset 0 0 8px hsla(var(--foreground-hsl),0.3);
 }
 .dark .baybot-tabs-trigger[data-state=active]:hover {
@@ -208,5 +209,5 @@ body {
 .interactive-glow:hover, .interactive-glow:focus-visible {
   @apply shadow-[0_0_15px_3px_hsla(var(--primary-hsl),0.3)];
 }
-
+    
     
