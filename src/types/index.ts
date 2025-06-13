@@ -9,6 +9,7 @@ export interface BayBotItem {
   originalPrice?: number; // RRP or original price for deals
   discountPercentage?: number; // Calculated or provided for deals
   sellerReputation: number; // Score from 0-100 (feedbackPercentage)
+  sellerFeedbackScore?: number; // Raw feedback score (count) for seller
   condition?: string; // Item condition string
   conditionId?: string; // Item condition ID
   itemLink?: string; // URL to view the item on eBay
@@ -26,4 +27,3 @@ export interface AnalysisResult {
   rarityScore: number;
   summary: string;
 }
-

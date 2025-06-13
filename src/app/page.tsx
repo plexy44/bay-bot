@@ -14,7 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
 import { fetchItems } from '@/services/ebay-api-service';
-import { rankDeals as rankDealsAI, type Deal as AIDeal, type RankDealsInput } from '@/ai/flows/rank-deals';
+import { rankDeals as rankDealsAI } from '@/ai/flows/rank-deals'; // Updated import if function signature changed
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { GLOBAL_CURATED_DEALS_REQUEST_MARKER } from '@/lib/constants';
@@ -45,15 +45,6 @@ function HomePageContent() {
 
   const { toast } = useToast();
 
-  const mapToAIDeal = useCallback((item: BayBotItem): AIDeal => ({
-    id: item.id,
-    title: item.title,
-    price: item.price,
-    discountPercentage: item.discountPercentage || 0,
-    sellerReputation: item.sellerReputation,
-    imageUrl: item.imageUrl,
-  }), []);
-
   const loadItems = useCallback(async (queryToLoad: string) => {
     console.log(`[HomePage loadItems] Initiating. Query to load: "${queryToLoad}"`);
     setAllItems([]);
@@ -67,57 +58,47 @@ function HomePageContent() {
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
     const isGlobalCuratedRequest = queryToLoad === '';
-    const fetchType = 'deals';
+    const fetchType = 'deal'; // Ensure this is 'deal'
     const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_DEALS_REQUEST_MARKER : queryToLoad;
     console.log(`[HomePage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
     try {
       const fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
-      console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items from fetchItems for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
+      console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items from server-side processing for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
 
       if (fetchedItems.length > 0) {
-        if (isGlobalCuratedRequest) {
-          processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-          toastMessage = { title: "Curated Deals", description: `Displaying deals for a popular category, sorted by discount.` };
-          console.log(`[HomePage loadItems] Global curated deals (${processedItems.length}) sorted by discount.`);
-        } else {
-          setIsRanking(true);
-          const dealsInputForAI: AIDeal[] = fetchedItems.map(mapToAIDeal);
-          const aiQueryContext = queryToLoad;
+        setIsRanking(true); // AI qualification/ranking stage
+        const aiQueryContext = queryToLoad || "general deals"; // Provide context for AI
 
-          try {
-            const aiRankerInput: RankDealsInput = { deals: dealsInputForAI, query: aiQueryContext };
-            console.log(`[HomePage loadItems] Sending ${dealsInputForAI.length} deals to AI for ranking. AI Query Context: "${aiQueryContext}"`);
-            const rankedOutputFromAI: AIDeal[] = await rankDealsAI(aiRankerInput);
+        try {
+          console.log(`[HomePage loadItems] Sending ${fetchedItems.length} pre-processed deals to AI for qualification/ranking. AI Query Context: "${aiQueryContext}"`);
+          // Pass BayBotItem[] and query directly as per the updated rankDeals signature
+          const qualifiedAndRankedItems: BayBotItem[] = await rankDealsAI(fetchedItems, aiQueryContext);
 
-            if (rankedOutputFromAI !== dealsInputForAI && rankedOutputFromAI.length === dealsInputForAI.length) {
-              const orderMap = new Map(rankedOutputFromAI.map((deal, index) => [deal.id, index]));
-              const sortedFetchedItems = [...fetchedItems].sort((a, b) => {
-                const posA = orderMap.get(a.id);
-                const posB = orderMap.get(b.id);
-                if (posA === undefined && posB === undefined) return 0;
-                if (posA === undefined) return 1;
-                if (posB === undefined) return -1;
-                return posA - posB;
-              });
-              processedItems = sortedFetchedItems;
-              toastMessage = { title: "Deals: AI Ranked", description: `Displaying AI-ranked deals for "${queryToLoad}".` };
-              console.log(`[HomePage loadItems] AI successfully ranked ${processedItems.length} deals for query: "${aiQueryContext}".`);
-            } else {
-              console.warn(`[HomePage loadItems] AI ranking issue or no change for query "${aiQueryContext}". Fallback: Sorting ${fetchedItems.length} deals by discount.`);
-              processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-              toastMessage = { title: "Deals: Sorted by Discount", description: `Displaying deals for "${queryToLoad}" by discount. AI ranking may have had an issue or no effect.` };
-            }
-          } catch (aiRankErrorCaught: any) {
-            console.error("[HomePage loadItems] AI Ranking failed for user search:", aiRankErrorCaught);
-            processedItems = [...fetchedItems].sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-            toastMessage = { title: "Deals: AI Error, Sorted by Discount", description: "AI ranking failed. Displaying deals by discount.", variant: "destructive"};
+          if (qualifiedAndRankedItems.length > 0) {
+              processedItems = qualifiedAndRankedItems;
+              const messageTitle = isGlobalCuratedRequest ? "Curated Deals: AI Qualified" : "Deals: AI Qualified";
+              const messageDesc = isGlobalCuratedRequest ? `Displaying AI-qualified deals for a popular category.` : `Displaying AI-qualified deals for "${queryToLoad}".`;
+              toastMessage = { title: messageTitle, description: messageDesc };
+              console.log(`[HomePage loadItems] AI successfully qualified and ranked ${processedItems.length} deals. Query: "${aiQueryContext}".`);
+          } else {
+              console.warn(`[HomePage loadItems] AI qualification returned no items or an empty list for query "${aiQueryContext}". Using server-processed list (${fetchedItems.length} items) as fallback.`);
+              processedItems = fetchedItems; // Fallback to server-processed list
+              const messageTitle = isGlobalCuratedRequest ? "Curated Deals: Server Processed" : "Deals: Server Processed";
+              const messageDesc = isGlobalCuratedRequest ? `Displaying server-processed deals for a popular category. AI found no further qualifications.` : `Displaying server-processed deals for "${queryToLoad}". AI found no further qualifications.`;
+              toastMessage = { title: messageTitle, description: messageDesc, variant: qualifiedAndRankedItems.length === 0 ? undefined : "destructive" };
           }
+        } catch (aiRankErrorCaught: any) {
+          console.error("[HomePage loadItems] AI Qualification/Ranking failed:", aiRankErrorCaught);
+          processedItems = fetchedItems; // Fallback to server-processed list
+          const messageTitle = isGlobalCuratedRequest ? "Curated Deals: AI Error" : "Deals: AI Error";
+          const messageDesc = `AI processing failed. Displaying server-processed deals.`;
+          toastMessage = { title: messageTitle, description: messageDesc, variant: "destructive"};
         }
       } else {
          processedItems = [];
          if (queryToLoad) {
-            toastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}".`};
+            toastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" after server processing.`};
          } else {
             toastMessage = { title: "No Curated Deals", description: "No global curated deals found for the sampled category at this time."};
          }
@@ -155,11 +136,12 @@ function HomePageContent() {
         toast({title: "Error Loading Deals", description: "An unexpected error occurred.", variant: "destructive"});
       }
     }
-  }, [toast, mapToAIDeal]);
+  // Removed mapToAIDeal from dependencies as it's no longer used here
+  }, [toast]);
 
   useEffect(() => {
     console.log(`[HomePage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
-    setInputValue(currentQueryFromUrl); // Sync input field with URL
+    setInputValue(currentQueryFromUrl); 
     loadItems(currentQueryFromUrl);
   }, [currentQueryFromUrl, loadItems]);
 
@@ -193,8 +175,8 @@ function HomePageContent() {
         onSearchInputChange={setInputValue}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={() => {
-          setInputValue(''); // Clear input visually
-          router.push('/'); // Navigate and trigger loadItems via useEffect
+          setInputValue(''); 
+          router.push('/'); 
         }}
       />
       <main className="flex-grow container mx-auto px-4 py-8">

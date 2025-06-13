@@ -14,6 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
 import { fetchItems } from '@/services/ebay-api-service';
+import { qualifyAuctions as qualifyAuctionsAI } from '@/ai/flows/qualify-auctions'; // New import
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER } from '@/lib/constants';
@@ -35,6 +36,7 @@ function AuctionsPageContent() {
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
   const [isLoading, setIsLoading] = useState(true);
+  const [isQualifying, setIsQualifying] = useState(false); // New state for AI qualification
   const [error, setError] = useState<string | null>(null);
   const [isAuthError, setIsAuthError] = useState(false);
 
@@ -48,6 +50,7 @@ function AuctionsPageContent() {
     setAllItems([]);
     setDisplayedItems([]);
     setIsLoading(true);
+    setIsQualifying(false);
     setError(null);
     setIsAuthError(false);
 
@@ -55,25 +58,47 @@ function AuctionsPageContent() {
     let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
     const isGlobalCuratedRequest = queryToLoad === '';
-    const fetchType = 'auction'; // Ensure this is 'auction'
+    const fetchType = 'auction'; 
     const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER : queryToLoad;
     console.log(`[AuctionsPage loadItems] Effective query for eBay: "${effectiveQueryForEbay}", Fetch type: "${fetchType}"`);
 
     try {
       let fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
-      console.log(`[AuctionsPage loadItems] Fetched ${fetchedItems.length} items for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
+      console.log(`[AuctionsPage loadItems] Fetched ${fetchedItems.length} items from server-side processing for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
+      
+      if (fetchedItems.length > 0) {
+        setIsQualifying(true); // AI qualification stage
+        const aiQueryContext = queryToLoad || "general auctions";
 
-      processedItems = fetchedItems; // Auctions are already sorted by API (endingSoonest) via fetchItems
+        try {
+            console.log(`[AuctionsPage loadItems] Sending ${fetchedItems.length} pre-processed auctions to AI for qualification/ranking. AI Query Context: "${aiQueryContext}"`);
+            const qualifiedAndRankedItems: BayBotItem[] = await qualifyAuctionsAI(fetchedItems, aiQueryContext);
 
-      if (processedItems.length > 0) {
-        if (isGlobalCuratedRequest) {
-          toastMessage = { title: "Curated Auctions", description: "Displaying auctions from a popular category, ending soonest."};
-        } else {
-          toastMessage = { title: "Auctions Loaded", description: `Displaying auctions for "${queryToLoad}", ending soonest.`};
+            if (qualifiedAndRankedItems.length > 0) {
+                processedItems = qualifiedAndRankedItems;
+                const messageTitle = isGlobalCuratedRequest ? "Curated Auctions: AI Qualified" : "Auctions: AI Qualified";
+                const messageDesc = isGlobalCuratedRequest ? `Displaying AI-qualified auctions from a popular category.` : `Displaying AI-qualified auctions for "${queryToLoad}".`;
+                toastMessage = { title: messageTitle, description: messageDesc };
+                console.log(`[AuctionsPage loadItems] AI successfully qualified and ranked ${processedItems.length} auctions. Query: "${aiQueryContext}".`);
+            } else {
+                console.warn(`[AuctionsPage loadItems] AI qualification returned no items or an empty list for query "${aiQueryContext}". Using server-processed list (${fetchedItems.length} items) as fallback.`);
+                processedItems = fetchedItems; // Fallback to server-processed list
+                const messageTitle = isGlobalCuratedRequest ? "Curated Auctions: Server Processed" : "Auctions: Server Processed";
+                const messageDesc = isGlobalCuratedRequest ? `Displaying server-processed auctions. AI found no further qualifications.` : `Displaying server-processed auctions for "${queryToLoad}". AI found no further qualifications.`;
+                toastMessage = { title: messageTitle, description: messageDesc, variant: qualifiedAndRankedItems.length === 0 ? undefined : "destructive" };
+            }
+        } catch (aiQualifyErrorCaught: any) {
+            console.error("[AuctionsPage loadItems] AI Qualification/Ranking failed:", aiQualifyErrorCaught);
+            processedItems = fetchedItems; // Fallback to server-processed list
+            const messageTitle = isGlobalCuratedRequest ? "Curated Auctions: AI Error" : "Auctions: AI Error";
+            const messageDesc = `AI processing failed. Displaying server-processed auctions.`;
+            toastMessage = { title: messageTitle, description: messageDesc, variant: "destructive"};
         }
+
       } else {
+         processedItems = [];
          if (queryToLoad) {
-            toastMessage = { title: "No Auctions Found", description: `No auctions found for "${queryToLoad}".`};
+            toastMessage = { title: "No Auctions Found", description: `No auctions found for "${queryToLoad}" after server processing.`};
          } else {
             toastMessage = { title: "No Curated Auctions", description: "No global curated auctions found for the sampled category at this time."};
          }
@@ -102,6 +127,7 @@ function AuctionsPageContent() {
       setDisplayedItems(processedItems.slice(0, ITEMS_PER_PAGE));
       setVisibleItemCount(ITEMS_PER_PAGE);
       setIsLoading(false);
+      setIsQualifying(false);
       console.log(`[AuctionsPage loadItems] Finalizing. Displayed ${processedItems.slice(0, ITEMS_PER_PAGE).length} of ${processedItems.length} items.`);
 
       if (toastMessage && !error) {
@@ -114,7 +140,7 @@ function AuctionsPageContent() {
 
   useEffect(() => {
     console.log(`[AuctionsPage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
-    setInputValue(currentQueryFromUrl); // Sync input field with URL
+    setInputValue(currentQueryFromUrl); 
     loadItems(currentQueryFromUrl);
   }, [currentQueryFromUrl, loadItems]);
 
@@ -149,8 +175,8 @@ function AuctionsPageContent() {
         onSearchInputChange={setInputValue}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={() => {
-          setInputValue(''); // Clear input visually
-          router.push('/'); // Navigate to Deals homepage and clear query
+          setInputValue(''); 
+          router.push('/'); 
         }}
       />
       <main className="flex-grow container mx-auto px-4 py-8">
@@ -162,13 +188,13 @@ function AuctionsPageContent() {
           </Alert>
         )}
 
-        {isLoading && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
+        {(isLoading || isQualifying) && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
 
-        {!isLoading && displayedItems.length === 0 && !error && (
+        {!isLoading && !isQualifying && displayedItems.length === 0 && !error && (
            <NoItemsMessage title={noItemsTitle} description={noItemsDescription} />
         )}
 
-        {!isLoading && displayedItems.length > 0 && (
+        {!isLoading && !isQualifying && displayedItems.length > 0 && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
               {displayedItems.map(item => (
@@ -209,4 +235,3 @@ export default function AuctionsPage() {
     </Suspense>
   );
 }
-
