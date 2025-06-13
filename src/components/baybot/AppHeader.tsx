@@ -2,7 +2,7 @@
 'use client';
 
 import type React from 'react';
-import { usePathname, useRouter } from 'next/navigation'; // Import useRouter and usePathname
+import { usePathname, useRouter } from 'next/navigation';
 import { SearchForm } from './atomic/SearchForm';
 import { ViewTabs } from './atomic/ViewTabs';
 
@@ -18,18 +18,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onSearch, searchQuery, set
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSearch(searchQuery); // The page (CuratedDealsPage or AuctionsPage) handles the search
+    onSearch(searchQuery); 
   };
 
   const handleLogoClick = () => {
-    // Navigate to curated deals page and clear search query if on that page
-    if (pathname !== '/curated-deals') {
-      router.push('/curated-deals');
+    if (pathname !== '/') {
+      router.push('/');
     }
-    // Clear search query to ensure curated content loads or reloads
-    // The page's useEffect will pick up the empty searchQuery
     setSearchQuery(''); 
-    // Call onSearch with empty string to ensure the page's loadItems is triggered with empty query
     onSearch(''); 
   };
   
@@ -40,7 +36,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onSearch, searchQuery, set
           <button
             onClick={handleLogoClick}
             className="text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-            aria-label="BayBot - View Curated Deals"
+            aria-label="BayBot - View Curated Deals Homepage"
           >
             BayBot
           </button>
@@ -58,3 +54,5 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ onSearch, searchQuery, set
     </header>
   );
 };
+
+    
