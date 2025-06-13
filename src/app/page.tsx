@@ -7,19 +7,16 @@ import dynamic from 'next/dynamic';
 import { AppHeader } from '@/components/baybot/AppHeader';
 import { ItemCard } from '@/components/baybot/ItemCard';
 import { ItemGridLoadingSkeleton } from '@/components/baybot/LoadingSkeleton';
-import { NoItemsMessage } from '@/components/baybot/atomic/NoItemsMessage'; // New Import
+import { NoItemsMessage } from '@/components/baybot/atomic/NoItemsMessage';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
 import { fetchItems } from '@/services/ebay-api-service';
-import { rankDeals as rankDealsAI, type Deal as AIDeal, type RankDealsInput } from '@/ai/flows/rank-deals';
+// AI Ranking is not used for auctions page
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
-import {
-  GLOBAL_CURATED_DEALS_REQUEST_MARKER,
-  GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER
-} from '@/lib/constants';
+import { GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER } from '@/lib/constants';
 
 const ITEMS_PER_PAGE = 8;
 
@@ -28,14 +25,13 @@ const AnalysisModal = dynamic(() =>
   { ssr: false, loading: () => <ItemGridLoadingSkeleton count={1} /> }
 );
 
-export default function HomePage() {
-  const [currentView, setCurrentView] = useState<'deals' | 'auctions'>('deals');
+export default function AuctionsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [displayedItems, setDisplayedItems] = useState<BayBotItem[]>([]);
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRanking, setIsRanking] = useState(false);
+  // isRanking state is not needed for auctions
   const [error, setError] = useState<string | null>(null);
   const [isAuthError, setIsAuthError] = useState(false);
 
@@ -44,98 +40,48 @@ export default function HomePage() {
 
   const { toast } = useToast();
 
-  const mapToAIDeal = useCallback((item: BayBotItem): AIDeal => ({
-    id: item.id,
-    title: item.title,
-    price: item.price,
-    discountPercentage: item.discountPercentage || 0,
-    sellerReputation: item.sellerReputation,
-    imageUrl: item.imageUrl,
-  }), []);
-
-  const loadItems = useCallback(async (viewToLoad: 'deals' | 'auctions', queryFromSearchState: string) => {
-    console.log(`[HomePage loadItems] Initiating. View: ${viewToLoad}, Query from state: "${queryFromSearchState}"`);
+  const loadItems = useCallback(async (queryFromSearchState: string) => {
+    console.log(`[AuctionsPage loadItems] Initiating. Query from state: "${queryFromSearchState}"`);
     setIsLoading(true);
-    setIsRanking(false);
     setError(null);
     setIsAuthError(false);
+    
+    let processedItems: BayBotItem[] = [];
+    let toastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
 
-    let fetchedItems: BayBotItem[] = [];
-    let aiRankedSuccessfully = false;
-    let rankErrorOccurred = false;
-
-    let effectiveQueryForEbay: string;
-    let fetchType: 'deals' | 'auctions' = viewToLoad;
-    let isGlobalCuratedRequest = false;
-
-    if (queryFromSearchState === '') {
-      isGlobalCuratedRequest = true;
-      if (viewToLoad === 'deals') {
-        effectiveQueryForEbay = GLOBAL_CURATED_DEALS_REQUEST_MARKER;
-        fetchType = 'deals';
-      } else {
-        effectiveQueryForEbay = GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER;
-        fetchType = 'auctions';
-      }
-      console.log(`[HomePage loadItems] Global curated request. Type: ${fetchType}, Marker: "${effectiveQueryForEbay}"`);
-    } else {
-      isGlobalCuratedRequest = false;
-      effectiveQueryForEbay = queryFromSearchState;
-      fetchType = viewToLoad;
-      console.log(`[HomePage loadItems] User search. Type: ${fetchType}, Query: "${effectiveQueryForEbay}"`);
-    }
+    const isGlobalCuratedRequest = queryFromSearchState === '';
+    const effectiveQueryForEbay = isGlobalCuratedRequest ? GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER : queryFromSearchState;
+    const fetchType = 'auctions'; // This page is always for auctions
 
     try {
-      fetchedItems = await fetchItems(fetchType, effectiveQueryForEbay);
-      console.log(`[HomePage loadItems] Fetched ${fetchedItems.length} items for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
+      let fetchedItems: BayBotItem[] = await fetchItems(fetchType, effectiveQueryForEbay);
+      console.log(`[AuctionsPage loadItems] Fetched ${fetchedItems.length} items for type '${fetchType}' using query/marker '${effectiveQueryForEbay}'.`);
+      
+      processedItems = fetchedItems; // Auctions are sorted by API (endingSoonest)
 
-      if (fetchType === 'deals' && fetchedItems.length > 0) {
+      if (processedItems.length > 0) {
         if (isGlobalCuratedRequest) {
-          fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-          console.log(`[HomePage loadItems] Global curated deals: Bypassed AI, sorted ${fetchedItems.length} deals by discount.`);
+          toastMessage = { title: "Global Curated Auctions", description: "Displaying auctions from our curated keywords, ending soonest."};
         } else {
-          setIsRanking(true);
-          const dealsInputForAI: AIDeal[] = fetchedItems.map(mapToAIDeal);
-          try {
-            const aiRankerInput: RankDealsInput = { deals: dealsInputForAI, query: effectiveQueryForEbay };
-            console.log(`[HomePage loadItems] Sending ${dealsInputForAI.length} user-searched deals to AI for ranking. Query context: "${effectiveQueryForEbay}"`);
-            const rankedOutputFromAI: AIDeal[] = await rankDealsAI(aiRankerInput);
-
-            if (rankedOutputFromAI !== dealsInputForAI && rankedOutputFromAI.length === dealsInputForAI.length) {
-              const orderMap = new Map(rankedOutputFromAI.map((deal, index) => [deal.id, index]));
-              fetchedItems.sort((a, b) => {
-                const posA = orderMap.get(a.id);
-                const posB = orderMap.get(b.id);
-                if (posA === undefined && posB === undefined) return 0;
-                if (posA === undefined) return 1;
-                if (posB === undefined) return -1;
-                return posA - posB;
-              });
-              aiRankedSuccessfully = true;
-              console.log(`[HomePage loadItems] AI successfully ranked ${fetchedItems.length} user-searched deals.`);
-            } else {
-              fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-              console.log(`[HomePage loadItems] AI ranking not applied for user search or no change. Sorted ${fetchedItems.length} deals by discount.`);
-            }
-          } catch (aiRankErrorCaught: any) {
-            console.error("[HomePage loadItems] AI Ranking failed for user search:", aiRankErrorCaught);
-            rankErrorOccurred = true;
-            fetchedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-          }
+          toastMessage = { title: "Auctions Loaded", description: `Displaying auctions for "${queryFromSearchState}", ending soonest.`};
         }
-      } else if (fetchType === 'deals' && fetchedItems.length === 0) {
-        console.log(`[HomePage loadItems] No deals fetched to rank for query/marker "${effectiveQueryForEbay}".`);
+      } else {
+         if (queryFromSearchState) {
+            toastMessage = { title: "No Auctions Found", description: `No auctions found for "${queryFromSearchState}".`};
+         } else {
+            toastMessage = { title: "No Curated Auctions", description: "No global curated auctions found at this time."};
+         }
       }
 
     } catch (e: any) {
-      console.error(`[HomePage loadItems] Failed to load items. Type '${fetchType}', Query/Marker '${effectiveQueryForEbay}'. Error:`, e);
-      let displayMessage = `Failed to load ${fetchType}. Please try again.`;
+      console.error(`[AuctionsPage loadItems] Failed to load items. Query/Marker '${effectiveQueryForEbay}'. Error:`, e);
+      let displayMessage = `Failed to load auctions. Please try again.`;
       if (typeof e.message === 'string') {
         if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
-          displayMessage = "Critical eBay API Authentication Failure: Please verify EBAY_APP_ID/EBAY_CERT_ID in .env and ensure production API access. Consult server logs.";
+          displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs.";
           setIsAuthError(true);
         } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
-          displayMessage = "eBay API Authentication Failed. Check credentials and production access. See server logs.";
+          displayMessage = "eBay API Authentication Failed. Check credentials and server logs.";
           setIsAuthError(true);
         } else if (e.message.includes("Failed to fetch from eBay Browse API")) {
           displayMessage = `Error fetching from eBay for "${effectiveQueryForEbay}". Check query or eBay status. Server logs may have details.`;
@@ -144,54 +90,27 @@ export default function HomePage() {
         }
       }
       setError(displayMessage);
-      setAllItems([]);
-      setDisplayedItems([]);
+      processedItems = []; // Ensure items are cleared on error
     } finally {
+      setAllItems(processedItems);
+      setDisplayedItems(processedItems.slice(0, ITEMS_PER_PAGE));
+      setVisibleItemCount(ITEMS_PER_PAGE);
       setIsLoading(false);
-      setIsRanking(false);
-      console.log(`[HomePage loadItems] Finalizing. isLoading: false, isRanking: false.`);
-    }
-
-    setAllItems(fetchedItems);
-    setDisplayedItems(fetchedItems.slice(0, ITEMS_PER_PAGE));
-    setVisibleItemCount(ITEMS_PER_PAGE);
-
-    setTimeout(() => {
-      if (error) {
-        // Error toast handled by Alert component
-      } else if (fetchType === 'deals' && fetchedItems.length > 0) {
-        if (isGlobalCuratedRequest) {
-          toast({ title: "Global Curated Deals", description: "Displaying deals from across our curated keywords, sorted by highest discount." });
-        } else if (aiRankedSuccessfully) {
-          toast({ title: "Deals: AI Ranked", description: `Displaying AI-ranked deals for "${queryFromSearchState}".` });
-        } else if (rankErrorOccurred) {
-          toast({ title: "AI Ranking Error, Sorted by Discount", description: `Displaying deals for "${queryFromSearchState}" sorted by discount. AI service might be unavailable.`, variant: "destructive" });
-        } else {
-          toast({ title: "Deals Sorted by Discount", description: `Displaying deals for "${queryFromSearchState}" sorted by highest discount.` });
-        }
-      } else if (fetchType === 'auctions' && fetchedItems.length > 0) {
-        toast({
-          title: isGlobalCuratedRequest ? "Global Curated Auctions" : "Auctions Loaded",
-          description: isGlobalCuratedRequest
-            ? "Displaying auctions from our curated keywords, ending soonest."
-            : `Displaying auctions related to "${queryFromSearchState}", ending soonest.`,
-        });
+      console.log(`[AuctionsPage loadItems] Finalizing. isLoading: false.`);
+      
+      if (toastMessage && !error) {
+        toast(toastMessage);
       }
-    }, 0);
-  }, [toast, mapToAIDeal]);
+    }
+  }, [toast]);
 
   useEffect(() => {
-    console.log(`[HomePage useEffect] Triggering loadItems. currentView: ${currentView}, searchQuery: "${searchQuery}"`);
-    loadItems(currentView, searchQuery);
-  }, [currentView, searchQuery, loadItems]);
+    console.log(`[AuctionsPage useEffect] Triggering loadItems. searchQuery: "${searchQuery}"`);
+    loadItems(searchQuery);
+  }, [searchQuery, loadItems]);
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-  };
-
-  const handleViewChange = (view: 'deals' | 'auctions') => {
-    setSearchQuery(''); // Clear search on view change for consistent global curated loading
-    setCurrentView(view);
   };
 
   const handleLoadMore = () => {
@@ -201,25 +120,20 @@ export default function HomePage() {
   };
 
   const handleAnalyzeItem = (item: BayBotItem) => {
+    // Analysis modal is primarily for deals, but can show basic info for auctions
     setSelectedItemForAnalysis(item);
-    setIsAnalysisModalOpen(true);
+    setIsAnalysisModalOpen(true); 
   };
+  
+  let noItemsTitle = "No Auctions Found";
+  let noItemsDescription = searchQuery 
+    ? `Try adjusting your search for "${searchQuery}".`
+    : "No global curated auctions available at the moment. Check back later!";
 
-  let noItemsTitle = `No ${currentView} found`;
-  let noItemsDescription = "";
-  if (searchQuery === '') {
-    noItemsDescription = currentView === 'deals'
-      ? "No global curated deals found. The hourly sweep might be in progress or no items matched."
-      : "No global curated auctions found. The hourly sweep might be in progress or no items matched.";
-  } else {
-    noItemsDescription = `Try adjusting your search for "${searchQuery}".`;
-  }
 
   return (
     <div className="flex flex-col min-h-screen">
       <AppHeader
-        currentView={currentView}
-        onViewChange={handleViewChange}
         onSearch={handleSearch}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -233,13 +147,13 @@ export default function HomePage() {
           </Alert>
         )}
 
-        {(isLoading || isRanking) && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
+        {isLoading && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
 
-        {!isLoading && !isRanking && displayedItems.length === 0 && !error && (
-          <NoItemsMessage title={noItemsTitle} description={noItemsDescription} />
+        {!isLoading && displayedItems.length === 0 && !error && (
+           <NoItemsMessage title={noItemsTitle} description={noItemsDescription} />
         )}
 
-        {!isLoading && !isRanking && displayedItems.length > 0 && (
+        {!isLoading && displayedItems.length > 0 && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
               {displayedItems.map(item => (
@@ -249,7 +163,7 @@ export default function HomePage() {
             {visibleItemCount < allItems.length && (
               <div className="text-center">
                 <Button onClick={handleLoadMore} size="lg" variant="outline">
-                  <ShoppingBag className="mr-2 h-5 w-5" /> Load More
+                  <ShoppingBag className="mr-2 h-5 w-5" /> Load More Auctions
                 </Button>
               </div>
             )}
