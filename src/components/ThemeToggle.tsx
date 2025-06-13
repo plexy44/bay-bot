@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    // Initialize theme based on the class already set on <html> by the inline script
+    // This is crucial for avoiding hydration mismatch for the initial render.
     if (typeof window !== 'undefined') {
       return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
     }
@@ -17,16 +19,18 @@ export function ThemeToggle() {
   useEffect(() => {
     setMounted(true);
 
-    // Defensively sync with DOM theme on mount.
-    // The useState initializer should generally suffice, but this is a safeguard.
+    // Defensively sync with DOM theme on mount if somehow out of sync with initial state.
+    // This is a safeguard; the useState initializer should generally be correct.
     const currentDomTheme = document.documentElement.classList.contains('dark') ? 'dark' : 'light';
     if (theme !== currentDomTheme) {
       setTheme(currentDomTheme);
     }
 
+    // Listener for system theme changes
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleSystemThemeChange = (e: MediaQueryListEvent) => {
       // Only change theme if no user preference is stored in localStorage
+      // This respects an explicit user choice over system preference.
       if (!localStorage.getItem('theme')) {
         const newSystemTheme = e.matches ? 'dark' : 'light';
         setTheme(newSystemTheme); // Update React state
@@ -43,12 +47,16 @@ export function ThemeToggle() {
 
     mediaQuery.addEventListener('change', handleSystemThemeChange);
     return () => mediaQuery.removeEventListener('change', handleSystemThemeChange);
-  }, []); // Empty dependency array: run once on mount.
+  }, []); // Empty dependency array: run once on mount to set up listener and mounted state.
 
   const toggleTheme = useCallback(() => {
     setTheme(prevTheme => {
       const newTheme = prevTheme === 'light' ? 'dark' : 'light';
-      localStorage.setItem('theme', newTheme);
+      try {
+        localStorage.setItem('theme', newTheme);
+      } catch (e) {
+        // Silently ignore localStorage write errors (e.g., private browsing, full storage)
+      }
       if (newTheme === 'dark') {
         document.documentElement.classList.add('dark');
         document.documentElement.classList.remove('light');
@@ -61,7 +69,8 @@ export function ThemeToggle() {
   }, []);
 
   if (!mounted) {
-    // Render a placeholder to avoid hydration mismatch for the icon during SSR
+    // Render a placeholder to avoid hydration mismatch for the icon during SSR/initial client render
+    // The dimensions match the Button to prevent layout shifts
     return <div className="h-10 w-10 rounded-full border interactive-glow" aria-label="Loading theme toggle" />;
   }
 
