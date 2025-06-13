@@ -32,12 +32,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
       } else {
         // If already on deals, the change in searchQuery (from setSearchQuery) will trigger
         // HomePage's useEffect to reload with the new randomTerm.
-        // Explicitly calling onSearch here might be redundant if useEffect handles it,
-        // but can ensure search if HomePage's useEffect logic is complex.
-        // Given HomePage's useEffect reacts to searchQuery, this should be enough.
-        // For clarity, one might call onSearch(randomTerm) if already on deals,
-        // but ensure HomePage's useEffect doesn't cause double load.
-        // Current HomePage useEffect should handle this correctly.
       }
     }
   };
@@ -45,7 +39,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({ currentView, onViewChange,
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/60 backdrop-blur-lg supports-[backdrop-filter]:bg-background/40">
       <div className="container flex h-16 max-w-screen-2xl items-center">
-        <div className="mr-4 flex items-center">
+        <div className="ml-2 mr-4 flex items-center md:ml-4"> {/* Added ml-2 for small screens, ml-4 for md+ */}
           <button 
             onClick={handleLogoClick} 
             className="text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"

@@ -70,23 +70,23 @@ body {
   .dark {
     --background-hsl: 222.2 84% 4.9%;
     --foreground-hsl: 210 40% 98%;
-    --card-hsl: 216 41% 11%;
+    --card-hsl: 216 41% 11%; /* Darker card for more depth in dark mode */
     --card-foreground-hsl: 210 40% 98%;
-    --popover-hsl: 222.2 84% 4.9%;
+    --popover-hsl: 222.2 84% 4.9%; /* Popovers can match the deep background */
     --popover-foreground-hsl: 210 40% 98%;
-    --primary-hsl: 210 40% 98%;
-    --primary-foreground-hsl: 222.2 47.4% 11.2%;
-    --secondary-hsl: 215 28% 17%;
+    --primary-hsl: 210 40% 98%; /* Primary interactive elements become light (e.g. white text) */
+    --primary-foreground-hsl: 222.2 47.4% 11.2%; /* Text on primary elements (e.g. dark blue on white button) */
+    --secondary-hsl: 215 28% 17%; /* Secondary elements, slightly lighter than background */
     --secondary-foreground-hsl: 210 40% 98%;
-    --muted-hsl: 215 28% 17%;
-    --muted-foreground-hsl: 210 40% 60%;
-    --accent-hsl: 215 28% 25%;
+    --muted-hsl: 215 28% 17%; /* Muted elements, same as secondary for cohesion */
+    --muted-foreground-hsl: 210 40% 60%; /* Muted text, less prominent */
+    --accent-hsl: 215 28% 25%; /* Accent color for highlights, a bit brighter */
     --accent-foreground-hsl: 210 40% 98%;
-    --destructive-hsl: 0 62.8% 30.6%;
+    --destructive-hsl: 0 62.8% 30.6%; /* Destructive actions, deep red */
     --destructive-foreground-hsl: 0 0% 98%;
-    --border-hsl: 215 28% 17%;
-    --input-hsl: 215 28% 17%;
-    --ring-hsl: 210 40% 98%;
+    --border-hsl: 215 28% 17%; /* Borders, subtle and dark */
+    --input-hsl: 215 28% 17%; /* Input fields, matching border/secondary */
+    --ring-hsl: 210 40% 98%; /* Ring for focus states, light to stand out */
 
     --background: hsl(var(--background-hsl));
     --foreground: hsl(var(--foreground-hsl));
@@ -152,10 +152,10 @@ body {
 
 /* Tab Animations & Glow */
 .baybot-tabs-trigger {
-  @apply transition-all duration-300 ease-in-out;
+  @apply transition-all duration-300 ease-in-out bg-transparent text-primary hover:bg-primary/20;
 }
 .baybot-tabs-trigger[data-state=active] {
-  @apply shadow-[0_0_15px_2px_hsla(var(--primary-hsl),0.4),inset_0_0_8px_hsla(var(--primary-hsl),0.2)] bg-primary/10 text-primary;
+  @apply bg-primary text-primary-foreground shadow-[0_0_15px_2px_hsla(var(--primary-hsl),0.4),inset_0_0_8px_hsla(var(--primary-foreground-hsl),0.3)];
 }
 
 /* Skeleton Animation for Glassmorphism */
@@ -180,5 +180,3 @@ body {
 .interactive-glow:hover, .interactive-glow:focus-visible {
   @apply shadow-[0_0_15px_3px_hsla(var(--primary-hsl),0.3)];
 }
-
-    
