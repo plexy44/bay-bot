@@ -1,5 +1,7 @@
 
 export const curatedHomepageSearchTerms: string[] = [
+  'Tablets',
+  'laptops',
   'macbook pro',
   'macbook air',
   'iphone 14',
@@ -19,24 +21,13 @@ export const curatedHomepageSearchTerms: string[] = [
   'xbox',
   'Elden Ring',
   'Ghost of Tsushima',
-  'Roomba',
-  'robot vacuum',
-  'air fryer',
   'monitor',
   'TV',
   'nintendo switch',
   'No Man\'s Sky',
   'The Last of Us',
-  'PS Portable',
-  'Steam Deck',
-  'laptop',
-  'headphones',
-  'smartwatch',
-  'camera',
-  'gaming console',
-  'kitchen appliance',
-  'tablet',
-  'drone'
+  'PS Portal',
+  'Steam Deck'
 ];
 
 export const GLOBAL_CURATED_DEALS_REQUEST_MARKER = "__GLOBAL_DEALS__";
@@ -44,3 +35,4 @@ export const GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER = "__GLOBAL_AUCTIONS__";
 
 export const STANDARD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 export const GLOBAL_CURATED_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
