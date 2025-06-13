@@ -5,6 +5,7 @@ import type React from 'react';
 import { useRouter } from 'next/navigation';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TrendingUp, Gavel } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ViewTabsProps {
   activePath: string;
@@ -29,11 +30,23 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
   return (
     <Tabs value={tabValue} onValueChange={handleValueChange}>
       <TabsList className="bg-muted/50 backdrop-blur-sm">
-        <TabsTrigger value="/" className="baybot-tabs-trigger px-3 sm:px-4">
+        <TabsTrigger 
+          value="/" 
+          className={cn(
+            "baybot-tabs-trigger px-3 sm:px-4",
+            "interactive-glow" // Added glow effect
+          )}
+        >
           <TrendingUp className="h-4 w-4 sm:mr-2" />
           <span className="hidden sm:inline">Curated Deals</span>
         </TabsTrigger>
-        <TabsTrigger value="/auctions" className="baybot-tabs-trigger px-3 sm:px-4">
+        <TabsTrigger 
+          value="/auctions" 
+          className={cn(
+            "baybot-tabs-trigger px-3 sm:px-4",
+            "interactive-glow" // Added glow effect
+          )}
+        >
           <Gavel className="h-4 w-4 sm:mr-2" />
           <span className="hidden sm:inline">Auctions</span>
         </TabsTrigger>
