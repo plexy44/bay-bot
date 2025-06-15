@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/baybot/AppHeader';
+import { AppFooter } from '@/components/dealscope/AppFooter';
 import { ItemCard } from '@/components/baybot/ItemCard';
 import { ItemGridLoadingSkeleton } from '@/components/baybot/LoadingSkeleton';
 import { NoItemsMessage } from '@/components/baybot/atomic/NoItemsMessage';
@@ -17,7 +18,7 @@ import { fetchItems, getRandomPopularSearchTerm } from '@/services/ebay-api-serv
 import { rankDeals as rankDealsAI } from '@/ai/flows/rank-deals';
 import { qualifyAuctions as qualifyAuctionsAI } from '@/ai/flows/qualify-auctions';
 import { useToast } from "@/hooks/use-toast";
-import { ThemeToggle } from '@/components/ThemeToggle';
+
 import {
   MIN_DESIRED_CURATED_ITEMS,
   MAX_CURATED_FETCH_ATTEMPTS,
@@ -71,20 +72,18 @@ function HomePageContent() {
 
 
   useEffect(() => {
-    // console.log(`[HomePage Query Change Effect] URL query changed to: "${currentQueryFromUrl}". Resetting flags.`);
+    setInputValue(currentQueryFromUrl);
     setInitialLoadComplete(false);
     setTopUpAttempted(false);
     setBackgroundAuctionCacheAttempted(false);
     setProactiveSearchAuctionCacheAttempted(false);
     setLoadedFromCacheTimestamp(null);
-    setInputValue(currentQueryFromUrl);
     loadItems(currentQueryFromUrl);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentQueryFromUrl]);
 
 
   const loadItems = useCallback(async (queryToLoad: string) => {
-    // console.log(`[HomePage loadItems] Initiating. Query: "${queryToLoad}"`);
     const isGlobalCuratedRequest = queryToLoad === '';
 
     setAllItems([]);
@@ -108,18 +107,14 @@ function HomePageContent() {
       if (cachedDataString) {
         const cachedData = JSON.parse(cachedDataString);
         if (cachedData && cachedData.items && Array.isArray(cachedData.items) && cachedData.items.length > 0 && (Date.now() - (cachedData.timestamp || 0) < currentCacheTTL)) {
-          // console.log(`[HomePage loadItems] CACHE HIT: Found ${cachedData.items.length} fresh items for key "${currentCacheKey}".`);
           finalProcessedItems = cachedData.items;
           if (isGlobalCuratedRequest) {
             setLoadedFromCacheTimestamp(cachedData.timestamp);
           }
           overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : "Searched"} Deals`, description: `Displaying previously fetched deals${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
         } else {
-          // console.log(`[HomePage loadItems] CACHE STALE/INVALID for key "${currentCacheKey}". Fetching fresh.`);
           sessionStorage.removeItem(currentCacheKey);
         }
-      } else {
-         // console.log(`[HomePage loadItems] CACHE MISS for key "${currentCacheKey}".`);
       }
     } catch (e) {
       console.warn(`[HomePage loadItems] Error reading/parsing cache for key "${currentCacheKey}":`, e);
@@ -128,7 +123,6 @@ function HomePageContent() {
 
     if (finalProcessedItems.length === 0) {
       if (isGlobalCuratedRequest) {
-        // console.log(`[HomePage loadItems] Curated deals: No valid cache. Starting iterative fresh fetch.`);
         setIsRanking(true);
         let accumulatedRawEbayItems: DealScopeItem[] = [];
         const attemptedKeywordsInitialLoad = new Set<string>();
@@ -156,7 +150,6 @@ function HomePageContent() {
               }
 
               if (keywordsForThisBatch.length === 0) {
-                // console.log(`[HomePage loadItems] Curated (Iter ${currentBatchNumber}): No new unique keywords. Breaking.`);
                 break;
               }
 
@@ -175,17 +168,14 @@ function HomePageContent() {
               accumulatedRawEbayItems.push(...uniqueNewItemsForAccumulation);
 
               if (attemptedKeywordsInitialLoad.size >= MAX_TOTAL_KEYWORDS_TO_TRY_INITIAL_DEALS) {
-                // console.log(`[HomePage loadItems] Curated: Reached max keywords limit (${MAX_TOTAL_KEYWORDS_TO_TRY_INITIAL_DEALS}).`);
                 break;
               }
             }
 
-            // console.log(`[HomePage loadItems] Curated: Finished iterative fetch. Total raw: ${accumulatedRawEbayItems.length} from ${attemptedKeywordsInitialLoad.size} keywords.`);
 
             if (accumulatedRawEbayItems.length > 0) {
               const aiQualifiedAndRankedItems: DealScopeItem[] = await rankDealsAI(accumulatedRawEbayItems, "general curated deals");
               const aiCount = aiQualifiedAndRankedItems.length;
-              // console.log(`[HomePage loadItems] Curated: AI qualified ${aiCount} from ${accumulatedRawEbayItems.length} raw.`);
 
               finalProcessedItems = [...aiQualifiedAndRankedItems];
 
@@ -209,7 +199,6 @@ function HomePageContent() {
 
            if (!backgroundAuctionCacheAttempted && !isAuthError) {
                 setBackgroundAuctionCacheAttempted(true);
-                // console.log("[HomePage loadItems] CURATED DEALS (CACHE MISS): Initiating proactive BG cache for GLOBAL CURATED auctions.");
                 (async () => {
                     try {
                         const cachedAuctions = sessionStorage.getItem(CURATED_AUCTIONS_CACHE_KEY);
@@ -244,17 +233,16 @@ function HomePageContent() {
                             .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true);
 
                         if (finalBackgroundAuctions.length > 0) {
-                            sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
-                            // console.log(`[HomePage BG Cache] Proactively cached ${finalBackgroundAuctions.length} GLOBAL CURATED auctions.`);
+                           const aiQualifiedAuctions = await qualifyAuctionsAI(finalBackgroundAuctions, "general curated auctions background cache from deals");
+                           sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: aiQualifiedAuctions, timestamp: Date.now() }));
                         }
                     } catch (e: any) {
-                        console.error("[HomePage BG Cache] Error during proactive GLOBAL CURATED auction caching:", e);
+                        console.warn("[HomePage BG Cache] Error during proactive GLOBAL CURATED auction caching:", e.message);
                     }
                 })();
             }
 
         } catch (e: any) {
-          console.error(`[HomePage loadItems] Error during iterative fetch for curated deals:`, e);
           let displayMessage = "Failed to load curated deals.";
            if (typeof e.message === 'string') {
             if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
@@ -269,7 +257,6 @@ function HomePageContent() {
           setIsRanking(false);
         }
       } else { // Standard Search (not global curated)
-        // console.log(`[HomePage loadItems] User search. eBay Query: "${queryToLoad}"`);
         try {
           const fetchedItems: DealScopeItem[] = await fetchItems('deal', queryToLoad, false);
 
@@ -285,7 +272,6 @@ function HomePageContent() {
             }
 
             finalProcessedItems = [...sortedAiItems];
-            // console.log(`[HomePage loadItems] AI qualified and ranked ${aiCount} deals for query "${queryToLoad}".`);
 
             if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < fetchedItems.length) {
               const aiQualifiedIds = new Set(finalProcessedItems.map(d => d.id));
@@ -299,7 +285,6 @@ function HomePageContent() {
               const serverSortedFallback = [...fetchedItems].sort((a,b) => (b.discountPercentage || 0) - (a.discountPercentage || 0));
               finalProcessedItems = serverSortedFallback.slice(0, MIN_DESIRED_CURATED_ITEMS);
               overallToastMessage = { title: "Deals: Server Processed & Sorted", description: `Displaying server-processed deals for "${queryToLoad}", sorted by discount. AI found no further qualifications.` };
-              console.warn(`[HomePage loadItems] AI returned no items for query "${queryToLoad}". Using server-sorted fallback (${finalProcessedItems.length} items).`);
             } else {
                overallToastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" after processing.` };
             }
@@ -307,7 +292,6 @@ function HomePageContent() {
             overallToastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" from server.` };
           }
         } catch (e: any) {
-          console.error(`[HomePage loadItems] Failed to load items for query '${queryToLoad}'. Error:`, e);
           let displayMessage = `Failed to load deals for "${queryToLoad}". Please try again.`;
           if (typeof e.message === 'string') {
             if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
@@ -324,10 +308,9 @@ function HomePageContent() {
           setIsRanking(false);
         }
       }
-    } else {
+    } else { // Loaded from cache
         if (isGlobalCuratedRequest && !backgroundAuctionCacheAttempted && !isAuthError) {
              setBackgroundAuctionCacheAttempted(true);
-             // console.log("[HomePage loadItems] CURATED DEALS (CACHE HIT): Initiating proactive BG cache for GLOBAL CURATED auctions.");
              (async () => {
                 try {
                     const cachedAuctions = sessionStorage.getItem(CURATED_AUCTIONS_CACHE_KEY);
@@ -362,11 +345,11 @@ function HomePageContent() {
                         .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true);
 
                     if (finalBackgroundAuctions.length > 0) {
-                        sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
-                        // console.log(`[HomePage BG Cache HIT] Proactively cached ${finalBackgroundAuctions.length} GLOBAL CURATED auctions.`);
+                        const aiQualifiedAuctions = await qualifyAuctionsAI(finalBackgroundAuctions, "general curated auctions background cache from deals");
+                        sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: aiQualifiedAuctions, timestamp: Date.now() }));
                     }
                 } catch (e: any) {
-                    console.error("[HomePage BG Cache HIT] Error during proactive GLOBAL CURATED auction caching:", e);
+                    console.warn("[HomePage BG Cache HIT] Error during proactive GLOBAL CURATED auction caching:", e.message);
                 }
              })();
         }
@@ -391,6 +374,7 @@ function HomePageContent() {
     } else if (error && !isAuthError) {
       toast({ title: "Error Loading Deals", description: error || "An unexpected error occurred.", variant: "destructive" });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast, isAuthError, currentQueryFromUrl]);
 
   useEffect(() => {
@@ -409,7 +393,6 @@ function HomePageContent() {
       !isAuthError &&
       (allItems.length < MIN_DESIRED_CURATED_ITEMS || (allItems.length > 0 && cacheIsStaleIshForSoftRefresh))
     ) {
-      // console.log(`[HomePage Top-Up/Soft Refresh] Conditions met. Items: ${allItems.length}. Stale cache: ${cacheIsStaleIshForSoftRefresh}.`);
       setTopUpAttempted(true);
       setIsLoading(true);
       setIsRanking(true);
@@ -433,7 +416,6 @@ function HomePageContent() {
           }
 
           if (additionalKeywordsToFetch.length === 0) {
-              console.warn("[HomePage Top-Up/Soft Refresh] No valid additional unique keywords. Aborting.");
               setIsLoading(false); setIsRanking(false);
               return;
           }
@@ -464,7 +446,6 @@ function HomePageContent() {
               }
           }
         } catch (e: any) {
-          console.error("[HomePage Top-Up/Soft Refresh] Error:", e);
           toast({ title: "Error Updating Deals", description: e.message || "Failed to fetch additional deals.", variant: "destructive" });
         } finally {
           setIsLoading(false);
@@ -472,13 +453,13 @@ function HomePageContent() {
         }
       })();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, toast, loadedFromCacheTimestamp]);
 
   useEffect(() => {
     const isGlobalCuratedView = !currentQueryFromUrl;
-    if (isGlobalCuratedView && initialLoadComplete && loadedFromCacheTimestamp && !backgroundAuctionCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
+    if (isGlobalCuratedView && initialLoadComplete && !backgroundAuctionCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
         setBackgroundAuctionCacheAttempted(true);
-        // console.log("[HomePage BG Cache Effect - Fallback] Conditions met for pre-caching GLOBAL CURATED auctions.");
         (async () => {
              try {
                 const cachedAuctions = sessionStorage.getItem(CURATED_AUCTIONS_CACHE_KEY);
@@ -515,21 +496,20 @@ function HomePageContent() {
                 if (finalBackgroundAuctions.length > 0) {
                     const aiQualifiedAuctions = await qualifyAuctionsAI(finalBackgroundAuctions, "general curated auctions background cache from deals");
                     sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: aiQualifiedAuctions, timestamp: Date.now() }));
-                    // console.log(`[HomePage BG Cache Effect - Fallback] Proactively cached ${aiQualifiedAuctions.length} AI-qualified GLOBAL CURATED auctions.`);
                 }
             } catch (e: any) {
-                console.error("[HomePage BG Cache Effect - Fallback] Error during proactive GLOBAL CURATED auction caching:", e);
+                console.warn("[HomePage BG Cache Effect - Fallback] Error during proactive GLOBAL CURATED auction caching:", e.message);
             }
         })();
     }
-  }, [allItems, initialLoadComplete, backgroundAuctionCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError, loadedFromCacheTimestamp]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allItems, initialLoadComplete, backgroundAuctionCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError, loadedFromCacheTimestamp, toast]);
 
 
   useEffect(() => {
     const query = currentQueryFromUrl;
     if (query && initialLoadComplete && !proactiveSearchAuctionCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
       setProactiveSearchAuctionCacheAttempted(true);
-      // console.log(`[HomePage Proactive Search Cache] Conditions met for pre-caching SEARCHED auctions for query: "${query}"`);
       (async () => {
         try {
           const searchedAuctionCacheKey = SEARCHED_AUCTIONS_CACHE_KEY_PREFIX + query;
@@ -545,30 +525,37 @@ function HomePageContent() {
           if (fetchedAuctions.length > 0) {
             const aiQualifiedAuctions = await qualifyAuctionsAI(fetchedAuctions, query);
             sessionStorage.setItem(searchedAuctionCacheKey, JSON.stringify({ items: aiQualifiedAuctions, timestamp: Date.now() }));
-            // console.log(`[HomePage Proactive Search Cache] Proactively cached ${aiQualifiedAuctions.length} AI-qualified SEARCHED auctions for query "${query}".`);
           }
         } catch (e: any) {
-          console.error(`[HomePage Proactive Search Cache] Error during proactive SEARCHED auction caching for query "${query}":`, e);
+          console.warn(`[HomePage Proactive Search Cache] Error during proactive SEARCHED auction caching for query "${query}":`, e.message);
         }
       })();
     }
-  }, [currentQueryFromUrl, initialLoadComplete, proactiveSearchAuctionCacheAttempted, isLoading, isRanking, error, isAuthError]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQueryFromUrl, initialLoadComplete, proactiveSearchAuctionCacheAttempted, isLoading, isRanking, error, isAuthError, toast]);
 
 
   const handleSearchSubmit = useCallback((query: string) => {
     const newPath = query ? `/?q=${encodeURIComponent(query)}` : '/';
     router.push(newPath);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
   const handleLogoClick = useCallback(async () => {
-    // console.log('[DealScopePage handleLogoClick] Logo clicked. Clearing global curated caches and navigating to homepage.');
+    setInputValue('');
     sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
     sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
     if (currentQueryFromUrl === '') {
+        setInitialLoadComplete(false);
+        setTopUpAttempted(false);
+        setBackgroundAuctionCacheAttempted(false);
+        setProactiveSearchAuctionCacheAttempted(false);
+        setLoadedFromCacheTimestamp(null);
         loadItems('');
     } else {
         router.push('/');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, currentQueryFromUrl, loadItems]);
 
 
@@ -649,12 +636,7 @@ function HomePageContent() {
             </div>
         )}
       </main>
-      <footer className="sticky bottom-0 z-10 h-16 flex items-center text-center border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
-        <div className="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
-          <p>&copy; {new Date().getFullYear()} DealScope. All rights reserved.</p>
-          <ThemeToggle />
-        </div>
-      </footer>
+      <AppFooter />
       {isAnalysisModalOpen && selectedItemForAnalysis && (
         <AnalysisModal
           item={selectedItemForAnalysis}
@@ -674,3 +656,5 @@ export default function HomePage() {
     </Suspense>
   );
 }
+
+    
