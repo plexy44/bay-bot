@@ -39,6 +39,9 @@ export default function TermsAndConditionsPage() {
           <p className="mb-4 text-card-foreground">
             Welcome to DealScope! These terms and conditions outline the rules and regulations for the use of our website.
           </p>
+          <p className="mb-4 text-card-foreground italic">
+            As an eBay Partner, we may be compensated if you make a purchase.
+          </p>
 
           <h2 className="text-2xl font-semibold mt-8 mb-3 text-primary">1. Acceptance of Terms</h2>
           <p className="mb-4 text-card-foreground">
