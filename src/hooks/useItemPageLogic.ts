@@ -54,11 +54,10 @@ export function useItemPageLogic(itemType: ItemType) {
 
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [topUpAttempted, setTopUpAttempted] = useState(false);
-  const [backgroundCacheAttempted, setBackgroundCacheAttempted] = useState(false); // Generic name
-  const [proactiveSearchCacheAttempted, setProactiveSearchCacheAttempted] = useState(false); // Generic name
+  const [backgroundCacheAttempted, setBackgroundCacheAttempted] = useState(false);
+  const [proactiveSearchCacheAttempted, setProactiveSearchCacheAttempted] = useState(false);
   const [loadedFromCacheTimestamp, setLoadedFromCacheTimestamp] = useState<number | null>(null);
 
-  // Item type specific constants and functions
   const CURATED_CACHE_KEY = itemType === 'deal' ? CURATED_DEALS_CACHE_KEY : CURATED_AUCTIONS_CACHE_KEY;
   const OTHER_ITEM_TYPE_CURATED_CACHE_KEY = itemType === 'deal' ? CURATED_AUCTIONS_CACHE_KEY : CURATED_DEALS_CACHE_KEY;
   const SEARCHED_CACHE_KEY_PREFIX = itemType === 'deal' ? SEARCHED_DEALS_CACHE_KEY_PREFIX : SEARCHED_AUCTIONS_CACHE_KEY_PREFIX;
@@ -112,7 +111,7 @@ export function useItemPageLogic(itemType: ItemType) {
                 }
                 overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : "Searched"} ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: `Displaying previously fetched ${itemType === 'auction' ? 'active ' : ''}${itemType === 'deal' ? 'deals' : 'auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
             } else {
-                sessionStorage.removeItem(currentCacheKey); // Cache was valid but contained no active items (for auctions)
+                sessionStorage.removeItem(currentCacheKey);
             }
         } else {
           sessionStorage.removeItem(currentCacheKey);
@@ -123,9 +122,8 @@ export function useItemPageLogic(itemType: ItemType) {
       sessionStorage.removeItem(currentCacheKey);
     }
 
-    if (processedItemsForState.length === 0) { // Not from cache or cache empty/invalid
+    if (processedItemsForState.length === 0) {
       if (isGlobalCuratedRequest) {
-        // --- Global Curated Request Logic ---
         if (itemType === 'deal') {
             setIsRanking(true);
             let accumulatedRawEbayItems: DealScopeItem[] = [];
@@ -187,7 +185,7 @@ export function useItemPageLogic(itemType: ItemType) {
                 }
             } catch (e: any) { /* error handling below */ }
             finally { setIsRanking(false); }
-        } else { // Auctions
+        } else {
             const initialKeywordsToFetch: string[] = [];
             const attemptedKeywordsForSession = new Set<string>();
             let uniqueKeywordFetchAttempts = 0;
@@ -221,55 +219,18 @@ export function useItemPageLogic(itemType: ItemType) {
               }
             }
         }
-        // Common error handling for global curated fetch failure
         if (isAuthError && processedItemsForState.length === 0) {
           setError("Critical eBay API Authentication Failure. Check .env and server logs.");
         } else if (!isAuthError && processedItemsForState.length === 0 && (itemType === 'auction' || (itemType === 'deal' && !overallToastMessage?.title.includes("Curated Deals")))) {
           setError(`Failed to fetch curated ${itemType === 'deal' ? 'deals' : 'auctions'}. Please try again.`);
         }
 
-        // Background cache for the OTHER item type (if this was a miss for current type)
-        if (isGlobalCuratedRequest && !backgroundCacheAttempted && !isAuthError && !error) { // Check error here
+        if (isGlobalCuratedRequest && !backgroundCacheAttempted && !isAuthError && !error) {
             setBackgroundCacheAttempted(true);
-            (async () => {
-                try {
-                    const cachedOtherType = sessionStorage.getItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY);
-                    if (cachedOtherType) {
-                        const parsed = JSON.parse(cachedOtherType);
-                        if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                            return;
-                        }
-                    }
-                    const keywordsForBgCache: string[] = [];
-                    let uniqueKwSafety = 0; const attemptedKwsBg = new Set<string>();
-                    while (keywordsForBgCache.length < KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE && uniqueKwSafety < (curatedHomepageSearchTerms.length + 5)) {
-                        const rKw = await getRandomPopularSearchTerm();
-                        if (rKw && rKw.trim() !== '' && !attemptedKwsBg.has(rKw)) { keywordsForBgCache.push(rKw); attemptedKwsBg.add(rKw); }
-                        uniqueKwSafety++;
-                    }
-                    if (keywordsForBgCache.length === 0) return;
-
-                    const batchesPromises = keywordsForBgCache.map(kw => fetchItems(otherItemType, kw, true));
-                    const batchesResults = await Promise.allSettled(batchesPromises);
-                    const successfulFetches = batchesResults.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<DealScopeItem[]>).value);
-                    const consolidatedItems = successfulFetches.flat();
-                    const uniqueItemsMap = new Map(consolidatedItems.map(i => [i.id, i]));
-                    let uniqueItems = Array.from(uniqueItemsMap.values());
-                    if (otherItemType === 'auction') {
-                        uniqueItems = uniqueItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-                    }
-
-                    if (uniqueItems.length > 0) {
-                        const aiProcessedItems = await (otherItemType === 'deal' ? rankDealsAI(uniqueItems, aiOtherTypeBackgroundCacheQuery) : qualifyAuctionsAI(uniqueItems, aiOtherTypeBackgroundCacheQuery));
-                        sessionStorage.setItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY, JSON.stringify({ items: aiProcessedItems, timestamp: Date.now() }));
-                    }
-                } catch (e: any) {
-                    console.warn(`[useItemPageLogic BG Cache MISS] Error during proactive GLOBAL CURATED ${otherItemType} caching:`, e.message);
-                }
-            })();
+            // Logic moved to useEffect
         }
 
-      } else { // --- User Search Request Logic ---
+      } else {
         let fetchedItemsFromServer: DealScopeItem[] = [];
         try {
           fetchedItemsFromServer = await fetchItems(itemType, queryToLoad, false);
@@ -284,7 +245,7 @@ export function useItemPageLogic(itemType: ItemType) {
             setIsRanking(false);
             processedItemsForState = aiProcessedItems;
 
-            if (itemType === 'deal' && processedItemsForState.length > 0) { // Deals page specific fallback and sorting
+            if (itemType === 'deal' && processedItemsForState.length > 0) {
                 let sortedAiItems = [...aiProcessedItems];
                 if (sortedAiItems.length > 0) sortedAiItems.sort((a, b) => (b.discountPercentage || 0) - (a.discountPercentage || 0));
                 processedItemsForState = [...sortedAiItems];
@@ -297,23 +258,23 @@ export function useItemPageLogic(itemType: ItemType) {
                   overallToastMessage = { title: `Deals: AI Enhanced & Sorted`, description: `Displaying ${aiProcessedItems.length} AI-qualified deals for "${queryToLoad}" (highest discount first), plus ${Math.min(fallbackItems.length, numFallbacksToAdd)} more.` };
                 } else if (aiProcessedItems.length > 0) {
                   overallToastMessage = { title: `Deals: AI Qualified & Sorted`, description: `Displaying ${aiProcessedItems.length} AI-qualified deals for "${queryToLoad}", sorted by highest discount.` };
-                } else if (activeFetchedItems.length > 0) { // AI returned 0, but server fetched some
+                } else if (activeFetchedItems.length > 0) {
                   const serverSortedFallback = [...activeFetchedItems].sort((a,b) => (b.discountPercentage || 0) - (a.discountPercentage || 0));
                   processedItemsForState = serverSortedFallback.slice(0, MIN_DESIRED_CURATED_ITEMS);
                   overallToastMessage = { title: `Deals: Server Processed & Sorted`, description: `Displaying server-processed deals for "${queryToLoad}", sorted by discount. AI found no further qualifications.` };
                 } else {
                    overallToastMessage = { title: `No Deals Found`, description: `No deals found for "${queryToLoad}" after processing.` };
                 }
-            } else if (itemType === 'auction') { // Auctions page
+            } else if (itemType === 'auction') {
                  if (aiProcessedItems.length > 0) {
                     overallToastMessage = { title: `Searched Auctions: AI Qualified`, description: `Displaying ${aiProcessedItems.length} AI-qualified auctions for "${queryToLoad}".` };
-                 } else if (activeFetchedItems.length > 0) { // AI returned 0, but server fetched some
+                 } else if (activeFetchedItems.length > 0) {
                     overallToastMessage = { title: `No Auctions Found by AI`, description: `AI found no suitable auctions for "${queryToLoad}" from ${activeFetchedItems.length} fetched.` };
                  } else {
                     overallToastMessage = { title: `No Auctions Found`, description: `No active auctions found for "${queryToLoad}".` };
                  }
             }
-          } else { // No active items fetched from server
+          } else {
             overallToastMessage = { title: `No ${itemType === 'deal' ? 'Deals' : 'Auctions'} Found`, description: `No ${itemType === 'auction' ? 'active ' : ''}${itemType === 'deal' ? 'deals' : 'auctions'} found for "${queryToLoad}".` };
           }
         } catch (e: any) {
@@ -331,46 +292,10 @@ export function useItemPageLogic(itemType: ItemType) {
           processedItemsForState = [];
         }
       }
-    } else { // Loaded from Session Cache
-        // Background cache for the OTHER item type (if current type was from cache)
+    } else {
         if (isGlobalCuratedRequest && !backgroundCacheAttempted && !isAuthError && !error) {
              setBackgroundCacheAttempted(true);
-             (async () => {
-                try {
-                    const cachedOtherType = sessionStorage.getItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY);
-                    if (cachedOtherType) {
-                        const parsed = JSON.parse(cachedOtherType);
-                        if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                            return;
-                        }
-                    }
-                    const keywordsForBgCache: string[] = [];
-                    let uniqueKwSafety = 0; const attemptedKwsBg = new Set<string>();
-                    while (keywordsForBgCache.length < KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE && uniqueKwSafety < (curatedHomepageSearchTerms.length + 5)) {
-                        const rKw = await getRandomPopularSearchTerm();
-                        if (rKw && rKw.trim() !== '' && !attemptedKwsBg.has(rKw)) { keywordsForBgCache.push(rKw); attemptedKwsBg.add(rKw); }
-                        uniqueKwSafety++;
-                    }
-                    if (keywordsForBgCache.length === 0) return;
-
-                    const batchesPromises = keywordsForBgCache.map(kw => fetchItems(otherItemType, kw, true));
-                    const batchesResults = await Promise.allSettled(batchesPromises);
-                    const successfulFetches = batchesResults.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<DealScopeItem[]>).value);
-                    const consolidatedItems = successfulFetches.flat();
-                    const uniqueItemsMap = new Map(consolidatedItems.map(i => [i.id, i]));
-                    let uniqueItems = Array.from(uniqueItemsMap.values());
-                     if (otherItemType === 'auction') {
-                        uniqueItems = uniqueItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-                    }
-
-                    if (uniqueItems.length > 0) {
-                        const aiProcessedItems = await (otherItemType === 'deal' ? rankDealsAI(uniqueItems, aiOtherTypeBackgroundCacheQuery) : qualifyAuctionsAI(uniqueItems, aiOtherTypeBackgroundCacheQuery));
-                        sessionStorage.setItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY, JSON.stringify({ items: aiProcessedItems, timestamp: Date.now() }));
-                    }
-                } catch (e: any) {
-                    console.warn(`[useItemPageLogic BG Cache HIT] Error during proactive GLOBAL CURATED ${otherItemType} caching:`, e.message);
-                }
-             })();
+             // Logic moved to useEffect
         }
     }
 
@@ -391,13 +316,12 @@ export function useItemPageLogic(itemType: ItemType) {
     } else if (error && !isAuthError) {
       setTimeout(() => toast({ title: `Error Loading ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: error || "An unexpected error occurred.", variant: "destructive" }), 0);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-      currentQueryFromUrl, itemType, // Removed toast from here
-      isAuthError, // Keep isAuthError
+      currentQueryFromUrl, itemType,
       CURATED_CACHE_KEY, SEARCHED_CACHE_KEY_PREFIX, OTHER_ITEM_TYPE_CURATED_CACHE_KEY, otherItemType,
-      aiRankOrQualifyItems, aiBackgroundCacheQuery, aiOtherTypeBackgroundCacheQuery,
-      backgroundCacheAttempted,
+      aiRankOrQualifyItems,
+      backgroundCacheAttempted, // This state being a dependency might cause re-runs; consider if it's truly needed for loadItems itself.
+      toast, // toast is stable
     ]);
 
   useEffect(() => {
@@ -406,175 +330,216 @@ export function useItemPageLogic(itemType: ItemType) {
     setTopUpAttempted(false);
     setBackgroundCacheAttempted(false);
     setProactiveSearchCacheAttempted(false);
-    setLoadedFromCacheTimestamp(null); // For deals page
+    setLoadedFromCacheTimestamp(null);
     loadItems(currentQueryFromUrl);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQueryFromUrl, itemType]); // loadItems removed as it's stable if toast is stable
+  }, [currentQueryFromUrl, itemType, loadItems]);
+
 
   // Top-up logic for global curated view
   useEffect(() => {
-    const isGlobalCuratedView = !currentQueryFromUrl;
-    let activeAllItems = allItems;
-    if (itemType === 'auction') {
-        activeAllItems = allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-    }
-    const cacheIsStaleIshForSoftRefresh = itemType === 'deal' && loadedFromCacheTimestamp !== null && (Date.now() - loadedFromCacheTimestamp > STALE_CACHE_THRESHOLD_FOR_SOFT_REFRESH_MS);
+    let isMounted = true;
 
-    const needsTopUp = (itemType === 'deal' && (activeAllItems.length < MIN_DESIRED_CURATED_ITEMS || (activeAllItems.length > 0 && cacheIsStaleIshForSoftRefresh))) ||
-                       (itemType === 'auction' && activeAllItems.length < MIN_DESIRED_CURATED_ITEMS);
+    const performTopUp = async () => {
+      const isGlobalCuratedView = !currentQueryFromUrl;
+      let activeAllItemsForCheck = allItems;
+      if (itemType === 'auction') {
+          activeAllItemsForCheck = allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
+      }
+      const cacheIsStaleIshForSoftRefresh = itemType === 'deal' && loadedFromCacheTimestamp !== null && (Date.now() - loadedFromCacheTimestamp > STALE_CACHE_THRESHOLD_FOR_SOFT_REFRESH_MS);
+      const needsTopUp = (itemType === 'deal' && (activeAllItemsForCheck.length < MIN_DESIRED_CURATED_ITEMS || (activeAllItemsForCheck.length > 0 && cacheIsStaleIshForSoftRefresh))) ||
+                         (itemType === 'auction' && activeAllItemsForCheck.length < MIN_DESIRED_CURATED_ITEMS);
 
-    if (isGlobalCuratedView && initialLoadComplete && !topUpAttempted && !isLoading && !isRanking && !error && !isAuthError && needsTopUp) {
+      if (!(isGlobalCuratedView && initialLoadComplete && !topUpAttempted && !isLoading && !isRanking && !error && !isAuthError && needsTopUp)) {
+        return;
+      }
+
+      if (!isMounted) return;
       setTopUpAttempted(true);
       setIsLoading(true);
       if(itemType === 'deal') setIsRanking(true);
 
-      (async () => {
-        try {
-          const currentItemIds = new Set(activeAllItems.map(item => item.id));
-          const numAdditionalKeywords = Math.max(1, Math.floor(MAX_CURATED_FETCH_ATTEMPTS / 2) || 1);
-          const additionalKeywordsToFetch: string[] = [];
-          let uniqueKeywordSafety = 0; const attemptedKeywordsForTopUp = new Set<string>();
-          while(additionalKeywordsToFetch.length < numAdditionalKeywords && uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 5)) {
-            const randomKw = await getRandomPopularSearchTerm();
-            if(randomKw && randomKw.trim() !== '' && !attemptedKeywordsForTopUp.has(randomKw)){
-              additionalKeywordsToFetch.push(randomKw); attemptedKeywordsForTopUp.add(randomKw);
+      try {
+        const currentItemIds = new Set(activeAllItemsForCheck.map(item => item.id));
+        const numAdditionalKeywords = Math.max(1, Math.floor(MAX_CURATED_FETCH_ATTEMPTS / 2) || 1);
+        const additionalKeywordsToFetch: string[] = [];
+        let uniqueKeywordSafety = 0; const attemptedKeywordsForTopUp = new Set<string>();
+        while(additionalKeywordsToFetch.length < numAdditionalKeywords && uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 5)) {
+          const randomKw = await getRandomPopularSearchTerm();
+          if(randomKw && randomKw.trim() !== '' && !attemptedKeywordsForTopUp.has(randomKw)){
+            additionalKeywordsToFetch.push(randomKw); attemptedKeywordsForTopUp.add(randomKw);
+          }
+          uniqueKeywordSafety++;
+        }
+
+        if (additionalKeywordsToFetch.length === 0) {
+            if (isMounted) { setIsLoading(false); if(itemType === 'deal') setIsRanking(false); }
+            return;
+        }
+
+        const additionalFetchedBatchesPromises = additionalKeywordsToFetch.map(kw => fetchItems(itemType, kw, true));
+        const additionalFetchedBatchesResults = await Promise.allSettled(additionalFetchedBatchesPromises);
+        const successfullyFetchedAdditionalItemsRaw = additionalFetchedBatchesResults
+            .filter(res => res.status === 'fulfilled')
+            .flatMap(res => (res as PromiseFulfilledResult<DealScopeItem[]>).value);
+
+        let newUniqueActiveAdditionalItems = successfullyFetchedAdditionalItemsRaw.filter(item => !currentItemIds.has(item.id));
+        if (itemType === 'auction') {
+          newUniqueActiveAdditionalItems = newUniqueActiveAdditionalItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
+        }
+
+        if (newUniqueActiveAdditionalItems.length > 0) {
+            let currentActiveItemsInner = allItems; // Use the allItems from the hook's scope for combining
+            if(itemType === 'auction') {
+                currentActiveItemsInner = allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
             }
-            uniqueKeywordSafety++;
-          }
-          if (additionalKeywordsToFetch.length === 0) {
-              setIsLoading(false); if(itemType === 'deal') setIsRanking(false);
-              return;
-          }
+            const combinedItems = [...currentActiveItemsInner, ...newUniqueActiveAdditionalItems];
+            const uniqueMap = new Map(combinedItems.map(item => [item.id, item]));
+            let itemsToProcessForAI = Array.from(uniqueMap.values());
 
-          const additionalFetchedBatchesPromises = additionalKeywordsToFetch.map(kw => fetchItems(itemType, kw, true));
-          const additionalFetchedBatchesResults = await Promise.allSettled(additionalFetchedBatchesPromises);
-          const successfullyFetchedAdditionalItemsRaw = additionalFetchedBatchesResults
-              .filter(res => res.status === 'fulfilled')
-              .flatMap(res => (res as PromiseFulfilledResult<DealScopeItem[]>).value);
+            let finalToppedUpItemsList = itemsToProcessForAI;
+            if (itemType === 'deal') {
+              finalToppedUpItemsList = await rankDealsAI(itemsToProcessForAI, "general curated deals top-up/soft refresh");
+            }
 
-          let newUniqueActiveAdditionalItems = successfullyFetchedAdditionalItemsRaw.filter(item => !currentItemIds.has(item.id));
-          if (itemType === 'auction') {
-            newUniqueActiveAdditionalItems = newUniqueActiveAdditionalItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-          }
-
-          if (newUniqueActiveAdditionalItems.length > 0) {
-              setAllItems(prevAllItems => {
-                let currentActiveItemsInner = prevAllItems;
-                if(itemType === 'auction') {
-                    currentActiveItemsInner = prevAllItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-                }
-                const combinedItems = [...currentActiveItemsInner, ...newUniqueActiveAdditionalItems];
-                const uniqueMap = new Map(combinedItems.map(item => [item.id, item]));
-                let finalToppedUpItemsList = Array.from(uniqueMap.values());
-
-                (async () => { // Inner async for AI processing to avoid blocking state update
-                    if (itemType === 'deal') {
-                        finalToppedUpItemsList = await rankDealsAI(finalToppedUpItemsList, "general curated deals top-up/soft refresh");
-                    }
-
-                    setAllItems(finalToppedUpItemsList); 
-                    sessionStorage.setItem(CURATED_CACHE_KEY, JSON.stringify({ items: finalToppedUpItemsList, timestamp: Date.now() }));
-                    setTimeout(() => toast({ title: `Curated ${itemType === 'deal' ? 'Deals' : 'Auctions'} Updated`, description: `Now displaying ${finalToppedUpItemsList.length} ${itemType === 'auction' ? 'active ' : ''}${itemType === 'deal' ? 'deals' : 'auctions'}.` }), 0);
-                })();
-                return finalToppedUpItemsList;
-              });
-          } else {
-              if(itemType === 'deal' && cacheIsStaleIshForSoftRefresh && activeAllItems.length >= MIN_DESIRED_CURATED_ITEMS) {
+            if (isMounted) {
+              setAllItems(finalToppedUpItemsList);
+              sessionStorage.setItem(CURATED_CACHE_KEY, JSON.stringify({ items: finalToppedUpItemsList, timestamp: Date.now() }));
+              setTimeout(() => toast({ title: `Curated ${itemType === 'deal' ? 'Deals' : 'Auctions'} Updated`, description: `Now displaying ${finalToppedUpItemsList.length} ${itemType === 'auction' ? 'active ' : ''}${itemType === 'deal' ? 'deals' : 'auctions'}.` }), 0);
+            }
+        } else {
+            if (isMounted) {
+              if(itemType === 'deal' && cacheIsStaleIshForSoftRefresh && activeAllItemsForCheck.length >= MIN_DESIRED_CURATED_ITEMS) {
                  setTimeout(() => toast({title: `${itemType === 'deal' ? 'Deals' : 'Auctions'} Refreshed`, description: `Checked for new ${itemType}, list is up to date.`}), 0);
               } else {
                  setTimeout(() => toast({title: `${itemType === 'deal' ? 'Deals' : 'Auctions'} Top-up`, description: `No new ${itemType} found in this attempt.`}), 0);
               }
-          }
-        } catch (e: any) {
+            }
+        }
+      } catch (e: any) {
+        if (isMounted) {
           setTimeout(() => toast({ title: `Error Updating ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: e.message || `Failed to fetch additional ${itemType}.`, variant: "destructive" }), 0);
-        } finally {
+        }
+      } finally {
+        if (isMounted) {
           setIsLoading(false);
           if(itemType === 'deal') setIsRanking(false);
         }
-      })();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, loadedFromCacheTimestamp, itemType, CURATED_CACHE_KEY]); // toast removed
+      }
+    };
 
-  // Fallback Background cache for OTHER item type (if current type loaded from cache)
+    performTopUp();
+
+    return () => {
+      isMounted = false;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, loadedFromCacheTimestamp, itemType, CURATED_CACHE_KEY, toast]);
+
+
+  // Fallback Background cache for OTHER item type
   useEffect(() => {
-    const isGlobalCuratedView = !currentQueryFromUrl;
-    if (isGlobalCuratedView && initialLoadComplete && !backgroundCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
-        setBackgroundCacheAttempted(true);
-        (async () => {
-             try {
-                const cachedOtherType = sessionStorage.getItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY);
-                if (cachedOtherType) {
-                    const parsed = JSON.parse(cachedOtherType);
-                     if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                        return;
-                    }
-                }
-                const keywordsForBgCache: string[] = [];
-                let uniqueKwSafety = 0; const attemptedKwsBg = new Set<string>();
-                while(keywordsForBgCache.length < KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE && uniqueKwSafety < (curatedHomepageSearchTerms.length + 5)) {
-                     const rKw = await getRandomPopularSearchTerm();
-                     if(rKw && rKw.trim() !== '' && !attemptedKwsBg.has(rKw)) { keywordsForBgCache.push(rKw); attemptedKwsBg.add(rKw); }
-                     uniqueKwSafety++;
-                }
-                if (keywordsForBgCache.length === 0) return;
+    let isMounted = true;
+    const performBackgroundCache = async () => {
+      const isGlobalCuratedView = !currentQueryFromUrl;
+      if (!(isGlobalCuratedView && initialLoadComplete && !backgroundCacheAttempted && !isLoading && !isRanking && !error && !isAuthError)) {
+        return;
+      }
 
-                const batchesPromises = keywordsForBgCache.map(kw => fetchItems(otherItemType, kw, true));
-                const batchesResults = await Promise.allSettled(batchesPromises);
-                const successfulFetches = batchesResults.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<DealScopeItem[]>).value);
-                const consolidatedItems = successfulFetches.flat();
-                const uniqueItemsMap = new Map(consolidatedItems.map(i => [i.id, i]));
-                let uniqueItems = Array.from(uniqueItemsMap.values());
-                if (otherItemType === 'auction') { 
-                    uniqueItems = uniqueItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-                }
+      if (!isMounted) return;
+      setBackgroundCacheAttempted(true);
 
-                if (uniqueItems.length > 0) {
-                    const aiProcessedItems = await (otherItemType === 'deal' ? rankDealsAI(uniqueItems, aiOtherTypeBackgroundCacheQuery) : qualifyAuctionsAI(uniqueItems, aiOtherTypeBackgroundCacheQuery));
-                    sessionStorage.setItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY, JSON.stringify({ items: aiProcessedItems, timestamp: Date.now() }));
-                }
-            } catch (e: any) {
-                console.warn(`[useItemPageLogic BG Cache Fallback] Error during proactive GLOBAL CURATED ${otherItemType} caching:`, e.message);
-            }
-        })();
-    }
+      try {
+          const cachedOtherType = sessionStorage.getItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY);
+          if (cachedOtherType) {
+              const parsed = JSON.parse(cachedOtherType);
+               if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
+                  return;
+              }
+          }
+          const keywordsForBgCache: string[] = [];
+          let uniqueKwSafety = 0; const attemptedKwsBg = new Set<string>();
+          while(keywordsForBgCache.length < KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE && uniqueKwSafety < (curatedHomepageSearchTerms.length + 5)) {
+               const rKw = await getRandomPopularSearchTerm();
+               if(rKw && rKw.trim() !== '' && !attemptedKwsBg.has(rKw)) { keywordsForBgCache.push(rKw); attemptedKwsBg.add(rKw); }
+               uniqueKwSafety++;
+          }
+          if (keywordsForBgCache.length === 0) return;
+
+          const batchesPromises = keywordsForBgCache.map(kw => fetchItems(otherItemType, kw, true));
+          const batchesResults = await Promise.allSettled(batchesPromises);
+          const successfulFetches = batchesResults.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<DealScopeItem[]>).value);
+          const consolidatedItems = successfulFetches.flat();
+          const uniqueItemsMap = new Map(consolidatedItems.map(i => [i.id, i]));
+          let uniqueItems = Array.from(uniqueItemsMap.values());
+          if (otherItemType === 'auction') {
+              uniqueItems = uniqueItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
+          }
+
+          if (uniqueItems.length > 0) {
+              const aiProcessedItems = await (otherItemType === 'deal' ? rankDealsAI(uniqueItems, aiOtherTypeBackgroundCacheQuery) : qualifyAuctionsAI(uniqueItems, aiOtherTypeBackgroundCacheQuery));
+              if (isMounted) {
+                sessionStorage.setItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY, JSON.stringify({ items: aiProcessedItems, timestamp: Date.now() }));
+              }
+          }
+      } catch (e: any) {
+          console.warn(`[useItemPageLogic BG Cache] Error during proactive GLOBAL CURATED ${otherItemType} caching:`, e.message);
+      }
+    };
+
+    performBackgroundCache();
+    return () => {
+      isMounted = false;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allItems, initialLoadComplete, backgroundCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError, itemType, OTHER_ITEM_TYPE_CURATED_CACHE_KEY, otherItemType, aiOtherTypeBackgroundCacheQuery]);
+  }, [initialLoadComplete, backgroundCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError, itemType, OTHER_ITEM_TYPE_CURATED_CACHE_KEY, otherItemType, aiOtherTypeBackgroundCacheQuery]);
 
   // Proactive search cache for OTHER item type
   useEffect(() => {
-    const query = currentQueryFromUrl;
-    if (query && initialLoadComplete && !proactiveSearchCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
-      setProactiveSearchCacheAttempted(true);
-      (async () => {
-        try {
-          const searchedOtherTypeCacheKey = OTHER_ITEM_TYPE_SEARCHED_CACHE_KEY_PREFIX + query;
-          const cachedDataString = sessionStorage.getItem(searchedOtherTypeCacheKey);
-          if (cachedDataString) {
-            const cachedData = JSON.parse(cachedDataString);
-            if (cachedData && cachedData.items && (Date.now() - (cachedData.timestamp || 0) < STANDARD_CACHE_TTL_MS)) {
-              return;
-            }
-          }
+    let isMounted = true;
+    const performProactiveSearchCache = async () => {
+      const query = currentQueryFromUrl;
+      if (!(query && initialLoadComplete && !proactiveSearchCacheAttempted && !isLoading && !isRanking && !error && !isAuthError)) {
+        return;
+      }
 
-          const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false);
-          if (fetchedOtherTypeItems.length > 0) {
-             let activeFetchedItems = fetchedOtherTypeItems;
-             if (otherItemType === 'auction') {
-                activeFetchedItems = fetchedOtherTypeItems.filter(i => i.type === 'auction' && i.endTime ? new Date(i.endTime).getTime() > Date.now() : false);
-             }
-             if (activeFetchedItems.length > 0) {
-                const aiProcessedItems = await (otherItemType === 'deal' ? rankDealsAI(activeFetchedItems, query) : qualifyAuctionsAI(activeFetchedItems, query));
-                sessionStorage.setItem(searchedOtherTypeCacheKey, JSON.stringify({ items: aiProcessedItems, timestamp: Date.now() }));
-             }
+      if(!isMounted) return;
+      setProactiveSearchCacheAttempted(true);
+
+      try {
+        const searchedOtherTypeCacheKey = OTHER_ITEM_TYPE_SEARCHED_CACHE_KEY_PREFIX + query;
+        const cachedDataString = sessionStorage.getItem(searchedOtherTypeCacheKey);
+        if (cachedDataString) {
+          const cachedData = JSON.parse(cachedDataString);
+          if (cachedData && cachedData.items && (Date.now() - (cachedData.timestamp || 0) < STANDARD_CACHE_TTL_MS)) {
+            return;
           }
-        } catch (e: any) {
-          console.warn(`[useItemPageLogic Proactive Search Cache] Error during proactive SEARCHED ${otherItemType} caching for query "${query}":`, e.message);
         }
-      })();
-    }
+
+        const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false);
+        if (fetchedOtherTypeItems.length > 0) {
+           let activeFetchedItems = fetchedOtherTypeItems;
+           if (otherItemType === 'auction') {
+              activeFetchedItems = fetchedOtherTypeItems.filter(i => i.type === 'auction' && i.endTime ? new Date(i.endTime).getTime() > Date.now() : false);
+           }
+           if (activeFetchedItems.length > 0) {
+              const aiProcessedItems = await (otherItemType === 'deal' ? rankDealsAI(activeFetchedItems, query) : qualifyAuctionsAI(activeFetchedItems, query));
+              if (isMounted) {
+                sessionStorage.setItem(searchedOtherTypeCacheKey, JSON.stringify({ items: aiProcessedItems, timestamp: Date.now() }));
+              }
+           }
+        }
+      } catch (e: any) {
+        console.warn(`[useItemPageLogic Proactive Search Cache] Error during proactive SEARCHED ${otherItemType} caching for query "${query}":`, e.message);
+      }
+    };
+    performProactiveSearchCache();
+    return () => {
+      isMounted = false;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQueryFromUrl, initialLoadComplete, proactiveSearchCacheAttempted, isLoading, isRanking, error, isAuthError, itemType, OTHER_ITEM_TYPE_SEARCHED_CACHE_KEY_PREFIX, otherItemType]);
+  }, [currentQueryFromUrl, initialLoadComplete, proactiveSearchCacheAttempted, isLoading, isRanking, error, isAuthError, itemType, OTHER_ITEM_TYPE_SEARCHED_CACHE_KEY_PREFIX, otherItemType, rankDealsAI, qualifyAuctionsAI]);
+
 
   const handleSearchSubmit = useCallback((query: string) => {
     const newPath = query ? `${pagePath}?q=${encodeURIComponent(query)}` : pagePath;
@@ -582,18 +547,18 @@ export function useItemPageLogic(itemType: ItemType) {
   }, [router, pagePath]);
 
   const handleLogoClick = useCallback(async () => {
-    setInputValue(''); 
-    sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY); 
+    setInputValue('');
+    sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
     sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
-    if (currentQueryFromUrl === '' && pagePath === (itemType === 'deal' ? '/' : '/auctions')) { 
+    if (currentQueryFromUrl === '' && pagePath === (itemType === 'deal' ? '/' : '/auctions')) {
         setInitialLoadComplete(false);
         setTopUpAttempted(false);
         setBackgroundCacheAttempted(false);
         setProactiveSearchCacheAttempted(false);
         setLoadedFromCacheTimestamp(null);
-        loadItems(''); 
+        loadItems('');
     } else {
-        router.push(itemType === 'deal' ? '/' : '/auctions'); 
+        router.push(itemType === 'deal' ? '/' : '/auctions');
     }
   }, [router, currentQueryFromUrl, itemType, pagePath, loadItems]);
 
@@ -615,7 +580,14 @@ export function useItemPageLogic(itemType: ItemType) {
   const handleAuctionEnd = useCallback((endedItemId: string) => {
     if (itemType !== 'auction') return;
 
-    setAllItems(prevItems => prevItems.filter(item => item.id !== endedItemId));
+    let endedItemTitleForToast = "An auction";
+    setAllItems(prevItems => {
+        const itemToRemove = prevItems.find(item => item.id === endedItemId);
+        if (itemToRemove) {
+            endedItemTitleForToast = itemToRemove.title;
+        }
+        return prevItems.filter(item => item.id !== endedItemId);
+    });
 
     const currentCacheKeyForEnd = (!currentQueryFromUrl) ? CURATED_AUCTIONS_CACHE_KEY : SEARCHED_AUCTIONS_CACHE_KEY_PREFIX + currentQueryFromUrl;
     try {
@@ -634,13 +606,13 @@ export function useItemPageLogic(itemType: ItemType) {
     } catch (e) {
         console.warn(`[useItemPageLogic handleAuctionEnd] Error updating sessionStorage for ${endedItemId} in key ${currentCacheKeyForEnd}:`, e);
     }
-    const endedItem = allItems.find(item => item.id === endedItemId);
+
     setTimeout(() => toast({
         title: "Auction Ended",
-        description: `"${(endedItem?.title || "An auction").substring(0,30)}..." has ended and been removed.`
+        description: `"${endedItemTitleForToast.substring(0,30)}..." has ended and been removed.`
     }), 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemType, currentQueryFromUrl, allItems, SEARCHED_AUCTIONS_CACHE_KEY_PREFIX, CURATED_AUCTIONS_CACHE_KEY]); // toast removed from deps
+  }, [itemType, currentQueryFromUrl, SEARCHED_AUCTIONS_CACHE_KEY_PREFIX, CURATED_AUCTIONS_CACHE_KEY, toast]);
 
   useEffect(() => {
     let activeItems = allItems;
@@ -667,8 +639,8 @@ export function useItemPageLogic(itemType: ItemType) {
     inputValue,
     setInputValue,
     displayedItems,
-    allItems, 
-    visibleItemCount, 
+    allItems,
+    visibleItemCount,
     isLoading,
     isRanking,
     error,
@@ -685,7 +657,6 @@ export function useItemPageLogic(itemType: ItemType) {
     noItemsTitle,
     noItemsDescription,
     activeItemsForNoMessageCount: activeItemsForNoMessage.length,
-    ITEMS_PER_PAGE, 
+    ITEMS_PER_PAGE,
   };
 }
-
