@@ -5,12 +5,14 @@ import type React from 'react';
 import { usePathname } from 'next/navigation';
 import { SearchForm } from './atomic/SearchForm';
 import { ViewTabs } from './atomic/ViewTabs';
+import { cn } from '@/lib/utils';
 
 interface AppHeaderProps {
   searchInputValue: string;
   onSearchInputChange: (query: string) => void;
   onSearchSubmit: (query: string) => void;
   onLogoClick: () => void;
+  isLoading: boolean; // Added isLoading prop
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -18,6 +20,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onSearchInputChange,
   onSearchSubmit,
   onLogoClick,
+  isLoading, // Destructure isLoading
 }) => {
   const pathname = usePathname(); // Used for ViewTabs activePath
 
@@ -40,8 +43,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <div className="flex items-center gap-x-3 sm:gap-x-4">
           <button
-            onClick={handleLogoClickInternal} // Uses the corrected internal handler
-            className="text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+            onClick={handleLogoClickInternal}
+            className={cn(
+              "text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm",
+              isLoading && "logo-rainbow-text-glow-loading" // Conditionally apply animation class
+            )}
             aria-label="BayBot - View Curated Deals Homepage"
           >
             BayBot
@@ -51,9 +57,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
         <div className="flex items-center">
           <SearchForm
-            searchQuery={searchInputValue}      // Prop for SearchForm, correctly uses searchInputValue
-            setSearchQuery={onSearchInputChange} // Prop for SearchForm, correctly uses onSearchInputChange
-            onSubmit={handleSearchFormSubmit}    // Prop for SearchForm, uses the internal handler
+            searchQuery={searchInputValue}
+            setSearchQuery={onSearchInputChange}
+            onSubmit={handleSearchFormSubmit}
           />
         </div>
       </div>

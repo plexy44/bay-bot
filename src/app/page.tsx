@@ -261,9 +261,8 @@ function HomePageContent() {
     console.log('[HomePage handleLogoClick] Logo clicked. Clearing caches and preparing for background curated content refresh.');
     sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
     sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
-    setInputValue(''); // Clear search input on UI
+    setInputValue(''); 
 
-    // Start background refresh tasks
     (async () => {
       try {
         console.log('[HomePage handleLogoClick] Starting background curated content fetch (deals & auctions)...');
@@ -276,8 +275,7 @@ function HomePageContent() {
           return;
         }
         console.log(`[HomePage handleLogoClick] Background task: Using ${uniqueBackgroundKeywords.length} unique keywords: ${uniqueBackgroundKeywords.join(', ')}`);
-
-        // Task for deals
+        
         const dealsTask = async () => {
           try {
             const dealBatchesPromises = uniqueBackgroundKeywords.map(kw => fetchItems('deal', kw, true));
@@ -299,13 +297,13 @@ function HomePageContent() {
             } else {
               console.log('[HomePage handleLogoClick] Background task: No curated deals found to AI rank or cache.');
             }
-          } catch (dealsError) {
+          } catch (dealsError: any) {
             console.error('[HomePage handleLogoClick] Background task error (Deals):', dealsError);
-            toast({ title: "Deals Refresh Failed", description: "Could not refresh curated deals.", variant: "destructive" });
+            const errorMsg = dealsError.message && dealsError.message.includes("Authentication Failure") ? "Deals refresh failed due to auth error." : "Could not refresh curated deals.";
+            toast({ title: "Deals Refresh Failed", description: errorMsg, variant: "destructive" });
           }
         };
-
-        // Task for auctions
+        
         const auctionsTask = async () => {
           try {
             const auctionBatchesPromises = uniqueBackgroundKeywords.map(kw => fetchItems('auction', kw, true));
@@ -324,25 +322,23 @@ function HomePageContent() {
               console.log(`[HomePage handleLogoClick] Background task: Saved ${finalBackgroundAuctions.length} curated auctions (server-processed) to sessionStorage.`);
               toast({ title: "Curated Auctions Refreshed", description: `${finalBackgroundAuctions.length} server-processed auctions cached.` });
             } else {
-              console.log('[HomePage handleLogoClick] Background task: No curated auctions found/qualified to cache.');
+              console.log('[HomePage handleLogoClick] Background task: No curated auctions found to cache.');
             }
-          } catch (auctionsError) {
+          } catch (auctionsError: any) {
             console.error('[HomePage handleLogoClick] Background task error (Auctions):', auctionsError);
-            toast({ title: "Auctions Refresh Failed", description: "Could not refresh curated auctions.", variant: "destructive" });
+            const errorMsg = auctionsError.message && auctionsError.message.includes("Authentication Failure") ? "Auctions refresh failed due to auth error." : "Could not refresh curated auctions.";
+            toast({ title: "Auctions Refresh Failed", description: errorMsg, variant: "destructive" });
           }
         };
 
-        // Run both tasks
         await Promise.allSettled([dealsTask(), auctionsTask()]);
         console.log('[HomePage handleLogoClick] Background tasks for deals and auctions completed (or failed).');
 
       } catch (bgError) {
         console.error('[HomePage handleLogoClick] General error in background curated content refresh setup:', bgError);
-        // This top-level catch might be for errors in keyword generation or Promise.allSettled itself.
       }
     })();
-
-    router.push('/'); // Navigate to homepage immediately
+    router.push('/'); 
   }, [router, toast]);
 
 
@@ -381,6 +377,7 @@ function HomePageContent() {
         onSearchInputChange={setInputValue}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={handleLogoClick}
+        isLoading={isLoading || isRanking} // Pass combined loading state
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
