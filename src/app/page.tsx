@@ -89,7 +89,7 @@ function HomePageContent() {
     setIsRanking(false);
     setError(null);
     setIsAuthError(false);
-    setLoadedFromCacheTimestamp(null); // Reset for each load attempt
+    setLoadedFromCacheTimestamp(null); 
 
     if (isGlobalCuratedRequest) {
       setInitialLoadComplete(false);
@@ -111,9 +111,9 @@ function HomePageContent() {
           console.log(`[HomePage loadItems] Found ${cachedData.items.length} fresh items in sessionStorage for key "${currentCacheKey}".`);
           finalProcessedItems = cachedData.items;
           if (isGlobalCuratedRequest) {
-            setLoadedFromCacheTimestamp(cachedData.timestamp); // Store cache timestamp for global curated
+            setLoadedFromCacheTimestamp(cachedData.timestamp); 
           }
-          overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : ""} Deals`, description: `Displaying previously fetched deals${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
+          overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : "Searched"} Deals`, description: `Displaying previously fetched deals${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
         } else {
           console.log(`[HomePage loadItems] Cache for key "${currentCacheKey}" was stale, empty, or invalid. Fetching fresh.`);
           sessionStorage.removeItem(currentCacheKey);
@@ -209,11 +209,11 @@ function HomePageContent() {
               overallToastMessage = { title: "No Curated Deals", description: "No deals found from initial iterative fetch." };
             }
 
-            if (isGlobalCuratedRequest && !backgroundAuctionCacheAttempted) {
+           if (!backgroundAuctionCacheAttempted && !isAuthError) {
                 setBackgroundAuctionCacheAttempted(true); 
-                console.log("[HomePage loadItems] Initiating proactive background cache for GLOBAL CURATED auctions from deals (cache miss path).");
+                console.log("[HomePage loadItems] Initiating proactive background cache for GLOBAL CURATED auctions (from deals cache MISS path).");
                 (async () => {
-                    try { /* ... same background auction caching logic ... */ 
+                    try { 
                         const cachedAuctions = sessionStorage.getItem(CURATED_AUCTIONS_CACHE_KEY);
                         if (cachedAuctions) {
                             const parsed = JSON.parse(cachedAuctions);
@@ -290,23 +290,32 @@ function HomePageContent() {
             const aiQualifiedAndRankedItems: BayBotItem[] = await rankDealsAI(fetchedItems, queryToLoad);
             const aiCount = aiQualifiedAndRankedItems.length;
             setIsRanking(false);
+            
+            let sortedAiItems = [...aiQualifiedAndRankedItems];
+            if (sortedAiItems.length > 0) {
+                // Sort AI-qualified items by discount percentage, highest first
+                sortedAiItems.sort((a, b) => (b.discountPercentage || 0) - (a.discountPercentage || 0));
+                console.log(`[HomePage loadItems] Sorted ${sortedAiItems.length} AI-qualified deals by discount for query "${queryToLoad}".`);
+            }
 
-            finalProcessedItems = [...aiQualifiedAndRankedItems];
+            finalProcessedItems = [...sortedAiItems];
             console.log(`[HomePage loadItems] AI qualified and ranked ${aiCount} deals for query "${queryToLoad}".`);
 
             if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < fetchedItems.length) {
-              const aiQualifiedIds = new Set(aiQualifiedAndRankedItems.map(d => d.id));
+              const aiQualifiedIds = new Set(finalProcessedItems.map(d => d.id)); // Use finalProcessedItems (already sorted)
               const fallbackItems = fetchedItems.filter(d => !aiQualifiedIds.has(d.id));
               const numFallbacksToAdd = Math.max(0, MIN_DESIRED_CURATED_ITEMS - aiCount);
               finalProcessedItems.push(...fallbackItems.slice(0, numFallbacksToAdd));
               console.log(`[HomePage loadItems] AI returned ${aiCount} (<${MIN_AI_QUALIFIED_ITEMS_THRESHOLD}) deals. Appending ${Math.min(fallbackItems.length, numFallbacksToAdd)} server-processed fallback deals.`);
-              overallToastMessage = { title: "Deals: AI Enhanced", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}", plus ${Math.min(fallbackItems.length, numFallbacksToAdd)} more.` };
+              overallToastMessage = { title: "Deals: AI Enhanced & Sorted", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}" (highest discount first), plus ${Math.min(fallbackItems.length, numFallbacksToAdd)} more.` };
             } else if (aiCount > 0) {
-              overallToastMessage = { title: "Deals: AI Qualified", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}".` };
+              overallToastMessage = { title: "Deals: AI Qualified & Sorted", description: `Displaying ${aiCount} AI-qualified deals for "${queryToLoad}", sorted by highest discount.` };
             } else if (fetchedItems.length > 0) { 
-              finalProcessedItems = fetchedItems.slice(0, MIN_DESIRED_CURATED_ITEMS); 
-              overallToastMessage = { title: "Deals: Server Processed", description: `Displaying server-processed deals for "${queryToLoad}". AI found no further qualifications.` };
-              console.warn(`[HomePage loadItems] AI qualification returned no items for query "${queryToLoad}". Using server-processed list (${finalProcessedItems.length} items) as fallback.`);
+              // If AI returns 0, sort the original fetched items by discount as a fallback
+              const serverSortedFallback = [...fetchedItems].sort((a,b) => (b.discountPercentage || 0) - (a.discountPercentage || 0));
+              finalProcessedItems = serverSortedFallback.slice(0, MIN_DESIRED_CURATED_ITEMS); 
+              overallToastMessage = { title: "Deals: Server Processed & Sorted", description: `Displaying server-processed deals for "${queryToLoad}", sorted by discount. AI found no further qualifications.` };
+              console.warn(`[HomePage loadItems] AI qualification returned no items for query "${queryToLoad}". Using server-processed list sorted by discount (${finalProcessedItems.length} items) as fallback.`);
             } else {
                overallToastMessage = { title: "No Deals Found", description: `No deals found for "${queryToLoad}" after processing.` };
             }
@@ -332,11 +341,12 @@ function HomePageContent() {
           setIsRanking(false);
         }
       }
-    } else { // Loaded from cache path
-        if (isGlobalCuratedRequest && !backgroundAuctionCacheAttempted) {
+    } else { 
+        console.log(`[HomePage loadItems] Loaded ${finalProcessedItems.length} items from cache for key "${currentCacheKey}".`);
+        if (isGlobalCuratedRequest && !backgroundAuctionCacheAttempted && !isAuthError) {
              setBackgroundAuctionCacheAttempted(true);
-             console.log("[HomePage loadItems] Initiating proactive background cache for GLOBAL CURATED auctions from deals (cache HIT path).");
-             (async () => { /* ... same background auction caching logic as above ... */ 
+             console.log("[HomePage loadItems] Initiating proactive background cache for GLOBAL CURATED auctions (from deals cache HIT path).");
+             (async () => {  
                 try {
                     const cachedAuctions = sessionStorage.getItem(CURATED_AUCTIONS_CACHE_KEY);
                     if (cachedAuctions) {
@@ -391,19 +401,11 @@ function HomePageContent() {
 
 
     setAllItems(finalProcessedItems);
-    // setDisplayedItems will be updated by its useEffect
     setIsLoading(false);
     setInitialLoadComplete(true); 
 
-    if (!error && finalProcessedItems.length > 0 && finalProcessedItems.length === 0) { // Logic error: was finalProcessedItems.length > 0
+    if (!error && finalProcessedItems.length > 0 ) { 
       try {
-        sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: finalProcessedItems, timestamp: Date.now() }));
-        console.log(`[HomePage loadItems] Saved ${finalProcessedItems.length} items to sessionStorage for key "${currentCacheKey}".`);
-      } catch (e) {
-        console.warn(`[HomePage loadItems] Error saving items to sessionStorage for key "${currentCacheKey}":`, e);
-      }
-    } else if (!error && finalProcessedItems.length > 0 && finalProcessedItems.length > 0) { // Corrected
-         try {
         sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: finalProcessedItems, timestamp: Date.now() }));
         console.log(`[HomePage loadItems] Saved ${finalProcessedItems.length} items to sessionStorage for key "${currentCacheKey}".`);
       } catch (e) {
@@ -418,9 +420,8 @@ function HomePageContent() {
       toast({ title: "Error Loading Deals", description: error || "An unexpected error occurred.", variant: "destructive" });
     }
     console.log(`[HomePage loadItems] Finalizing. Total items for state: ${finalProcessedItems.length} for query "${queryToLoad}".`);
-  }, [toast, backgroundAuctionCacheAttempted]);
+  }, [toast, backgroundAuctionCacheAttempted, isAuthError]); // Added isAuthError
 
-  // Top-up for GLOBAL CURATED deals (also handles soft refresh for stale cache)
   useEffect(() => {
     const isGlobalCuratedView = !currentQueryFromUrl;
     const cacheIsStaleIshForSoftRefresh = 
@@ -445,7 +446,6 @@ function HomePageContent() {
       (async () => {
         try {
           const currentItemIds = new Set(allItems.map(item => item.id));
-          // Fetch a smaller number of keywords for top-up/soft refresh than initial load
           const numAdditionalKeywords = Math.max(1, Math.floor(MAX_CURATED_FETCH_ATTEMPTS / 2) || 1); 
           
           const additionalKeywordsToFetch: string[] = [];
@@ -507,15 +507,14 @@ function HomePageContent() {
     }
   }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, toast, loadedFromCacheTimestamp]);
 
-  // Fallback: Proactive background caching for GLOBAL CURATED auctions (if on deals page)
   useEffect(() => {
     const isGlobalCuratedView = !currentQueryFromUrl;
-    if (isGlobalCuratedView && initialLoadComplete && !backgroundAuctionCacheAttempted && !isLoading && !isRanking && !error && allItems.length > 0) {
+    if (isGlobalCuratedView && initialLoadComplete && !backgroundAuctionCacheAttempted && !isLoading && !isRanking && !error && !isAuthError && allItems.length > 0) {
         setBackgroundAuctionCacheAttempted(true); 
         console.log("[HomePage Background Cache Effect] Conditions met for pre-caching GLOBAL CURATED auctions (useEffect fallback).");
 
         (async () => {
-             try { /* ... same background auction caching logic ... */ 
+             try { 
                 const cachedAuctions = sessionStorage.getItem(CURATED_AUCTIONS_CACHE_KEY);
                 if (cachedAuctions) {
                     const parsed = JSON.parse(cachedAuctions);
@@ -560,8 +559,9 @@ function HomePageContent() {
                     .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true);
 
                 if (finalBackgroundAuctions.length > 0) {
-                    sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
-                    console.log(`[HomePage Background Cache Effect] Proactively cached ${finalBackgroundAuctions.length} GLOBAL CURATED auctions.`);
+                    const aiQualifiedAuctions = await qualifyAuctionsAI(finalBackgroundAuctions, "general curated auctions background cache from deals");
+                    sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: aiQualifiedAuctions, timestamp: Date.now() }));
+                    console.log(`[HomePage Background Cache Effect] Proactively cached ${aiQualifiedAuctions.length} AI-qualified GLOBAL CURATED auctions.`);
                 } else {
                     console.log("[HomePage Background Cache Effect] No GLOBAL CURATED auctions found to proactively cache.");
                 }
@@ -570,13 +570,12 @@ function HomePageContent() {
             }
         })();
     }
-  }, [allItems, initialLoadComplete, backgroundAuctionCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl]);
+  }, [allItems, initialLoadComplete, backgroundAuctionCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError]);
 
 
-  // Proactive background caching for SEARCHED auctions (if on deals page with a search query)
   useEffect(() => {
     const query = currentQueryFromUrl;
-    if (query && initialLoadComplete && !proactiveSearchAuctionCacheAttempted && !isLoading && !isRanking && !error) {
+    if (query && initialLoadComplete && !proactiveSearchAuctionCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
       setProactiveSearchAuctionCacheAttempted(true);
       console.log(`[HomePage Proactive Search Cache] Conditions met for pre-caching SEARCHED auctions for query: "${query}"`);
 
@@ -606,14 +605,15 @@ function HomePageContent() {
         }
       })();
     }
-  }, [currentQueryFromUrl, initialLoadComplete, proactiveSearchAuctionCacheAttempted, isLoading, isRanking, error, allItems]); // Added allItems to dependencies
+  }, [currentQueryFromUrl, initialLoadComplete, proactiveSearchAuctionCacheAttempted, isLoading, isRanking, error, allItems, isAuthError]); 
 
 
   useEffect(() => {
     console.log(`[HomePage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
     setInputValue(currentQueryFromUrl); 
     loadItems(currentQueryFromUrl);
-  }, [currentQueryFromUrl, loadItems]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQueryFromUrl]); // loadItems is intentionally omitted as per previous fixes for update depth
 
 
   const handleSearchSubmit = useCallback((query: string) => {
@@ -633,7 +633,6 @@ function HomePageContent() {
 
   const handleLoadMore = () => {
     const newVisibleCount = visibleItemCount + ITEMS_PER_PAGE;
-    setDisplayedItems(allItems.slice(0, newVisibleCount));
     setVisibleItemCount(newVisibleCount);
   };
 
