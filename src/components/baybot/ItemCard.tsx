@@ -1,19 +1,20 @@
 
 import Image from 'next/image';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Info, ExternalLink, ShieldCheck, TrendingUp } from "lucide-react"; // Combined imports
+import { Clock, Info, ExternalLink, ShieldCheck, TrendingUp } from "lucide-react";
 import type { BayBotItem } from '@/types';
 import { cn } from "@/lib/utils";
 
 interface ItemCardProps {
   item: BayBotItem;
   onAnalyze: (item: BayBotItem) => void;
+  onAuctionEnd?: (itemId: string) => void; // New prop
 }
 
-const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
+const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuctionEnd }) => {
   const canViewItem = !!item.itemLink;
   const buttonText = item.type === 'deal' ? "View Deal" : "View Auction";
 
@@ -21,7 +22,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
   const [isLastHour, setIsLastHour] = useState(false);
 
   useEffect(() => {
-    let intervalId: NodeJS.Timeout | undefined; // Declare intervalId here
+    let intervalId: NodeJS.Timeout | undefined;
 
     if (item.type === 'auction' && item.endTime) {
       const updateTimer = () => {
@@ -30,11 +31,11 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
         const diffMs = endTimeMs - nowMs;
 
         if (diffMs <= 0) {
-          setDisplayTimeLeft("Ended");
-          setIsLastHour(false);
-          if (intervalId) { // Check if intervalId was set before trying to clear
+          if (intervalId) {
             clearInterval(intervalId);
           }
+          onAuctionEnd?.(item.id); // Call the callback when auction ends
+          // No longer setting displayTimeLeft to "Ended" here, component will be removed
           return;
         }
 
@@ -44,7 +45,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
         const minutes = Math.floor((totalSeconds % (60 * 60)) / 60);
         const seconds = totalSeconds % 60;
 
-        let timeLeftString = ""; // Removed "Time left: " prefix, added in JSX
+        let timeLeftString = "";
         if (days > 0) {
           timeLeftString += `${days}d ${hours}h ${minutes}m ${seconds}s`;
         } else if (hours > 0) {
@@ -58,21 +59,19 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
         setIsLastHour(diffMs > 0 && diffMs <= 60 * 60 * 1000);
       };
 
-      updateTimer(); // Initial call to set time immediately
-      intervalId = setInterval(updateTimer, 1000); // Assign to the declared intervalId
+      updateTimer();
+      intervalId = setInterval(updateTimer, 1000);
 
-      // Cleanup function
       return () => {
         if (intervalId) {
           clearInterval(intervalId);
         }
       };
     } else {
-      // For non-auctions or auctions without endTime, use static timeLeft if provided
       setDisplayTimeLeft(item.timeLeft);
       setIsLastHour(false);
     }
-  }, [item.id, item.endTime, item.type, item.timeLeft]); // item.id added for unique effect instance per item
+  }, [item.id, item.endTime, item.type, item.timeLeft, onAuctionEnd]);
 
 
   return (
@@ -86,7 +85,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
             className="object-cover rounded-t-lg"
             data-ai-hint={item['data-ai-hint'] || item.title.toLowerCase().split(' ').slice(0,2).join(' ')}
             unoptimized={item.imageUrl?.includes('ebayimg.com')}
-            priority={false} // Generally false, can be true for above-the-fold critical images
+            priority={false}
           />
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
             <Badge
@@ -105,8 +104,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
       </CardHeader>
       <CardContent className="p-4 flex-grow">
         <CardTitle className="text-lg font-headline mb-2 leading-tight line-clamp-2 text-foreground">{item.title}</CardTitle>
-        <div className="flex items-baseline space-x-2 mb-2"> {/* Use items-baseline for price alignment */}
-          {/* Removed Tag icon, price is primary */}
+        <div className="flex items-baseline space-x-2 mb-2">
           <p className="text-2xl font-semibold text-primary">£{item.price.toFixed(2)}</p>
           {item.originalPrice && item.price < item.originalPrice && (
             <p className="text-sm text-muted-foreground line-through">£{item.originalPrice.toFixed(2)}</p>
@@ -117,8 +115,8 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze }) => {
           {item.type === 'auction' && displayTimeLeft && (
             <div className="flex items-center">
               <Clock className="h-3.5 w-3.5 mr-1.5" />
-              <span className={cn({ "text-red-600 dark:text-red-400 font-semibold": isLastHour && displayTimeLeft !== "Ended" })}>
-                {displayTimeLeft === "Ended" ? "Ended" : `Time left: ${displayTimeLeft}`}
+              <span className={cn({ "text-red-600 dark:text-red-400 font-semibold": isLastHour })}>
+                Time left: {displayTimeLeft}
               </span>
             </div>
           )}
