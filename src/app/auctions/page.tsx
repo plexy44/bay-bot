@@ -276,7 +276,7 @@ function AuctionsPageContent() {
 
           if (additionalKeywordsToFetch.length === 0) {
               console.warn("[AuctionsPage Top-Up Effect] No valid additional unique keywords for auctions top-up. Aborting.");
-              setIsLoading(false); // Ensure loading is false if aborting
+              setIsLoading(false); 
               return;
           }
           
@@ -524,21 +524,20 @@ function AuctionsPageContent() {
             console.warn(`[AuctionsPage handleAuctionEnd] Error updating sessionStorage for ended auction ${endedItemId}:`, e);
         }
     }
-    const endedItemTitle = allItems.find(item => item.id === endedItemId)?.title || "An auction";
+    // Find item *before* removing it from allItems for the toast message
+    const allItemsSnapshot = allItems; // Use a snapshot if allItems might update before find completes
+    const endedItemTitle = allItemsSnapshot.find(item => item.id === endedItemId)?.title || "An auction";
     toast({ 
         title: "Auction Ended", 
         description: `"${endedItemTitle.substring(0,30)}..." has ended and been removed.` 
     });
-  }, [allItems, currentQueryFromUrl, toast]); 
+  }, [currentQueryFromUrl, toast, allItems]); // Added allItems to dependency for use in find
 
 
   useEffect(() => {
-    const activeItems = allItems.filter(item => {
-        return item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false;
-    });
-    if (JSON.stringify(allItems.map(i => i.id)) !== JSON.stringify(activeItems.map(i => i.id))) {
-       setAllItems(activeItems); 
-    }
+    const activeItems = allItems.filter(item =>
+      item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false
+    );
     setDisplayedItems(activeItems.slice(0, visibleItemCount));
   }, [allItems, visibleItemCount]);
 
