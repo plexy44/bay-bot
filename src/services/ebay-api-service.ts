@@ -148,7 +148,8 @@ function getHighResolutionImageUrl(originalUrl?: string): string {
 function transformBrowseItem(
   browseItem: BrowseApiItemSummary,
   itemTypeFromFilter: 'deal' | 'auction',
-  keywordsUsedForApi: string
+  keywordsUsedForApi: string,
+  isGlobalCuratedRequestForTransform: boolean // Added parameter
 ): BayBotItem | null {
   try {
     const id = browseItem.itemId;
@@ -224,9 +225,10 @@ function transformBrowseItem(
     }
     discountPercentageValue = discountPercentageValue || 0;
 
-    if (determinedItemType === 'deal' && discountPercentageValue < MIN_DEAL_DISCOUNT_THRESHOLD) {
+    // Only apply strict discount threshold for global curated requests. For user searches, let AI decide.
+    if (determinedItemType === 'deal' && isGlobalCuratedRequestForTransform && discountPercentageValue < MIN_DEAL_DISCOUNT_THRESHOLD) {
        if (!originalPriceValue || originalPriceValue <= currentPriceValue) {
-        console.log(`[eBay Service Transform] Excluding deal "${title}" due to discount (${discountPercentageValue}%) below threshold (${MIN_DEAL_DISCOUNT_THRESHOLD}%) or no valid original price.`);
+        console.log(`[eBay Service Transform] Excluding GLOBAL CURATED deal "${title}" due to discount (${discountPercentageValue}%) below threshold (${MIN_DEAL_DISCOUNT_THRESHOLD}%) or no valid original price.`);
         return null;
        }
     }
@@ -315,13 +317,15 @@ export const fetchItems = async (
   const authToken = await getEbayAuthToken();
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search');
   browseApiUrl.searchParams.append('q', keywordsForApi);
-  browseApiUrl.searchParams.append('limit', '50');
+  // Adjust limit based on request type
+  const limit = (type === 'deal' && !isGlobalCuratedRequest) ? '100' : '50';
+  browseApiUrl.searchParams.append('limit', limit);
   browseApiUrl.searchParams.append('offset', '0');
 
   let filterOptions: string[] = ['itemLocationCountry:GB'];
   let sortOption: string | null = null;
 
-  console.log(`[BayBot Fetch Logic] Constructing API params. Query(q): "${keywordsForApi}". Type for params: "${type}".`);
+  console.log(`[BayBot Fetch Logic] Constructing API params. Query(q): "${keywordsForApi}". Type for params: "${type}". Limit: ${limit}`);
 
   if (type === 'auction') {
     console.log(`[BayBot Fetch Logic] Applying AUCTION specific parameters.`);
@@ -337,10 +341,10 @@ export const fetchItems = async (
       filterOptions.push('price:[20..]');
       sortOption = null; 
       console.log(`[BayBot Fetch Logic] Global Curated Deal: Price filter [20..], No server sort by API (will sort post-fetch).`);
-    } else { 
+    } else { // User-initiated search for deals
       filterOptions.push('price:[1..]');
-      sortOption = null; 
-      console.log(`[BayBot Fetch Logic] User Searched Deal: Price filter [1..], API Sort by eBay's default (relevance).`);
+      sortOption = null; // Rely on eBay's default relevance for user searches
+      console.log(`[BayBot Fetch Logic] User Searched Deal: Price filter [1..], API Sort by eBay's default (relevance). Fetching ${limit} items.`);
     }
   }
 
@@ -403,7 +407,7 @@ export const fetchItems = async (
 
     const browseItems: BrowseApiItemSummary[] = data.itemSummaries || [];
     let transformedItems = browseItems
-      .map(browseItem => transformBrowseItem(browseItem, type, keywordsForApi))
+      .map(browseItem => transformBrowseItem(browseItem, type, keywordsForApi, isGlobalCuratedRequest)) // Pass isGlobalCuratedRequest
       .filter((item): item is BayBotItem => item !== null);
 
     // Logging for search term performance analysis (before client-side AI ranking)
@@ -441,3 +445,4 @@ export const fetchItems = async (
     throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}.`);
   }
 };
+
