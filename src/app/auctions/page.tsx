@@ -2,10 +2,8 @@
 'use client';
 
 import type React from 'react';
-import { useState, useEffect, useCallback, Suspense }
-  from 'react';
+import { Suspense } from 'react';
 import dynamic from 'next/dynamic';
-import { useSearchParams, useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/baybot/AppHeader';
 import { AppFooter } from '@/components/dealscope/AppFooter';
 import { ItemCard } from '@/components/baybot/ItemCard';
@@ -14,25 +12,7 @@ import { NoItemsMessage } from '@/components/baybot/atomic/NoItemsMessage';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info, Loader2 } from "lucide-react";
-import type { DealScopeItem } from '@/types';
-import { fetchItems, getRandomPopularSearchTerm } from '@/services/ebay-api-service';
-import { useToast } from "@/hooks/use-toast";
-import {
-  CURATED_AUCTIONS_CACHE_KEY,
-  CURATED_DEALS_CACHE_KEY,
-  MIN_DESIRED_CURATED_ITEMS,
-  MAX_CURATED_FETCH_ATTEMPTS,
-  GLOBAL_CURATED_CACHE_TTL_MS,
-  STANDARD_CACHE_TTL_MS,
-  KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE,
-  SEARCHED_AUCTIONS_CACHE_KEY_PREFIX,
-  SEARCHED_DEALS_CACHE_KEY_PREFIX,
-  curatedHomepageSearchTerms
-} from '@/lib/constants';
-import { qualifyAuctions as qualifyAuctionsAI } from '@/ai/flows/qualify-auctions';
-import { rankDeals as rankDealsAI } from '@/ai/flows/rank-deals';
-
-const ITEMS_PER_PAGE = 8;
+import { useItemPageLogic } from '@/hooks/useItemPageLogic';
 
 const AnalysisModal = dynamic(() =>
   import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
@@ -40,485 +20,29 @@ const AnalysisModal = dynamic(() =>
 );
 
 function AuctionsPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const currentQueryFromUrl = searchParams.get('q') || '';
-
-  const [inputValue, setInputValue] = useState(currentQueryFromUrl);
-  const [displayedItems, setDisplayedItems] = useState<DealScopeItem[]>([]);
-  const [allItems, setAllItems] = useState<DealScopeItem[]>([]);
-  const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRanking, setIsRanking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isAuthError, setIsAuthError] = useState(false);
-
-  const [selectedItemForAnalysis, setSelectedItemForAnalysis] = useState<DealScopeItem | null>(null);
-  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
-
-  const { toast } = useToast();
-
-  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
-  const [topUpAttempted, setTopUpAttempted] = useState(false);
-  const [backgroundDealsCacheAttempted, setBackgroundDealsCacheAttempted] = useState(false);
-  const [proactiveSearchDealsCacheAttempted, setProactiveSearchDealsCacheAttempted] = useState(false);
-
-  useEffect(() => {
-    setInputValue(currentQueryFromUrl);
-    setInitialLoadComplete(false);
-    setTopUpAttempted(false);
-    setBackgroundDealsCacheAttempted(false);
-    setProactiveSearchDealsCacheAttempted(false);
-    loadItems(currentQueryFromUrl);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQueryFromUrl]);
-
-  const loadItems = useCallback(async (queryToLoad: string) => {
-    const isGlobalCuratedRequest = queryToLoad === '';
-
-    setAllItems([]);
-    setDisplayedItems([]);
-    setVisibleItemCount(ITEMS_PER_PAGE);
-    setIsLoading(true);
-    setIsRanking(false);
-    setError(null);
-    setIsAuthError(false);
-
-    let processedItemsForState: DealScopeItem[] = [];
-    let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
-    const currentCacheKey = isGlobalCuratedRequest ? CURATED_AUCTIONS_CACHE_KEY : SEARCHED_AUCTIONS_CACHE_KEY_PREFIX + queryToLoad;
-    const currentCacheTTL = isGlobalCuratedRequest ? GLOBAL_CURATED_CACHE_TTL_MS : STANDARD_CACHE_TTL_MS;
-
-    try {
-      const cachedDataString = sessionStorage.getItem(currentCacheKey);
-      if (cachedDataString) {
-        const cachedData = JSON.parse(cachedDataString);
-        if (cachedData && cachedData.items && Array.isArray(cachedData.items) && (Date.now() - (cachedData.timestamp || 0) < currentCacheTTL)) {
-          const activeCachedItems = (cachedData.items as DealScopeItem[] || []).filter(item =>
-            item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false
-          );
-          if (activeCachedItems.length > 0) {
-            processedItemsForState = activeCachedItems;
-            overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : "Searched"} Auctions`, description: `Displaying previously fetched active auctions${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
-          } else {
-            sessionStorage.removeItem(currentCacheKey);
-          }
-        } else {
-          sessionStorage.removeItem(currentCacheKey);
-        }
-      }
-    } catch (e) {
-      console.warn(`[AuctionsPage loadItems] Error with sessionStorage for key "${currentCacheKey}":`, e);
-      sessionStorage.removeItem(currentCacheKey);
-    }
-
-    if (processedItemsForState.length === 0) {
-      if (isGlobalCuratedRequest) {
-        const initialKeywordsToFetch: string[] = [];
-        const attemptedKeywordsForSession = new Set<string>();
-        let uniqueKeywordFetchAttempts = 0;
-
-        while (initialKeywordsToFetch.length < MAX_CURATED_FETCH_ATTEMPTS && uniqueKeywordFetchAttempts < (curatedHomepageSearchTerms.length + 10)) {
-          const randomKw = await getRandomPopularSearchTerm();
-          if (randomKw && randomKw.trim() !== '' && !attemptedKeywordsForSession.has(randomKw)) {
-            initialKeywordsToFetch.push(randomKw);
-            attemptedKeywordsForSession.add(randomKw);
-          }
-          uniqueKeywordFetchAttempts++;
-        }
-
-        if (initialKeywordsToFetch.length === 0) {
-          setError("Could not find keywords for curated auctions.");
-        } else {
-          const initialFetchPromises = initialKeywordsToFetch.map(kw =>
-            fetchItems('auction', kw, true).catch(e => {
-              if (e.message?.includes("Authentication Failure") || e.message?.includes("invalid_client")) setIsAuthError(true);
-              return [];
-            })
-          );
-          const initialResultsSettled = await Promise.all(initialFetchPromises);
-
-          const successfullyFetchedInitialItems = initialResultsSettled
-            .flat()
-            .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-
-          const uniqueInitialItemsMap = new Map(successfullyFetchedInitialItems.map(item => [item.id, item]));
-          processedItemsForState = Array.from(uniqueInitialItemsMap.values());
-
-          if (processedItemsForState.length > 0) {
-            overallToastMessage = { title: "Curated Auctions Loaded", description: `Found ${processedItemsForState.length} auctions.` };
-          } else if (!isAuthError) {
-            overallToastMessage = { title: "No Curated Auctions", description: `No auctions found from initial keyword batch.` };
-          }
-        }
-        if (isAuthError && processedItemsForState.length === 0) {
-          setError("Critical eBay API Authentication Failure. Check .env and server logs.");
-        } else if (!isAuthError && processedItemsForState.length === 0 && initialKeywordsToFetch.length > 0) {
-          setError("Failed to fetch curated auctions. Please try again.");
-        }
-
-        if (isGlobalCuratedRequest && !backgroundDealsCacheAttempted && !isAuthError) {
-            setBackgroundDealsCacheAttempted(true);
-            (async () => {
-                try {
-                    const cachedDeals = sessionStorage.getItem(CURATED_DEALS_CACHE_KEY);
-                    if (cachedDeals) {
-                        const parsed = JSON.parse(cachedDeals);
-                        if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                            return;
-                        }
-                    }
-                    const keywordsForBackgroundDealsCache: string[] = [];
-                    let uniqueKwSafety = 0;
-                    const attemptedKwsBg = new Set<string>();
-                    while (keywordsForBackgroundDealsCache.length < KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE && uniqueKwSafety < (curatedHomepageSearchTerms.length + 5)) {
-                        const rKw = await getRandomPopularSearchTerm();
-                        if (rKw && rKw.trim() !== '' && !attemptedKwsBg.has(rKw)) {
-                            keywordsForBackgroundDealsCache.push(rKw);
-                            attemptedKwsBg.add(rKw);
-                        }
-                        uniqueKwSafety++;
-                    }
-                    if (keywordsForBackgroundDealsCache.length === 0) { return; }
-
-                    const dealBatchesPromises = keywordsForBackgroundDealsCache.map(kw => fetchItems('deal', kw, true));
-                    const dealBatchesResults = await Promise.allSettled(dealBatchesPromises);
-                    const successfulDealFetches = dealBatchesResults.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<DealScopeItem[]>).value);
-                    const consolidatedDeals = successfulDealFetches.flat();
-                    const uniqueDealsMap = new Map(consolidatedDeals.map(i => [i.id, i]));
-                    const uniqueDeals = Array.from(uniqueDealsMap.values());
-
-                    if (uniqueDeals.length > 0) {
-                        const aiRankedDeals = await rankDealsAI(uniqueDeals, "general curated deals background cache from auctions");
-                        sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
-                    }
-                } catch (e: any) {
-                    console.warn("[AuctionsPage BG Cache] Error during proactive GLOBAL CURATED deals caching:", e.message);
-                }
-            })();
-        }
-
-      } else { // User Search for Auctions
-        let fetchedItemsFromServer: DealScopeItem[] = [];
-        try {
-          fetchedItemsFromServer = await fetchItems('auction', queryToLoad, false);
-          const activeFetchedItems = fetchedItemsFromServer.filter(item =>
-            item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false
-          );
-
-          if (activeFetchedItems.length > 0) {
-            setIsRanking(true);
-            console.log(`[AuctionsPage loadItems] User search "${queryToLoad}": Sending ${activeFetchedItems.length} active items to AI for qualification.`);
-            const aiQualifiedAuctions = await qualifyAuctionsAI(activeFetchedItems, queryToLoad);
-            console.log(`[AuctionsPage loadItems] User search "${queryToLoad}": AI returned ${aiQualifiedAuctions.length} qualified items.`);
-            setIsRanking(false);
-            processedItemsForState = aiQualifiedAuctions;
-
-            if (aiQualifiedAuctions.length > 0) {
-              overallToastMessage = { title: "Searched Auctions: AI Qualified", description: `Displaying ${aiQualifiedAuctions.length} AI-qualified auctions for "${queryToLoad}".` };
-            } else { // AI returned 0, but server fetched some
-               overallToastMessage = { title: "No Auctions Found by AI", description: `AI found no suitable auctions for "${queryToLoad}" from ${activeFetchedItems.length} fetched.` };
-            }
-          } else {
-            overallToastMessage = { title: "No Auctions Found", description: `No active auctions found for "${queryToLoad}".` };
-          }
-        } catch (e: any) {
-          let displayMessage = `Failed to load auctions for "${queryToLoad}". Please try again.`;
-          if (typeof e.message === 'string') {
-            if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
-              displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs."; setIsAuthError(true);
-            } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
-              displayMessage = "eBay API Authentication Failed. Check credentials and server logs."; setIsAuthError(true);
-            } else { displayMessage = e.message; }
-          }
-          setError(displayMessage);
-          processedItemsForState = [];
-        }
-      }
-    } else { // Loaded from cache
-        if (isGlobalCuratedRequest && !backgroundDealsCacheAttempted && !isAuthError) {
-             setBackgroundDealsCacheAttempted(true);
-            (async () => {
-                try {
-                    const cachedDeals = sessionStorage.getItem(CURATED_DEALS_CACHE_KEY);
-                    if (cachedDeals) {
-                        const parsed = JSON.parse(cachedDeals);
-                        if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                            return;
-                        }
-                    }
-                    const keywordsForBackgroundDealsCache: string[] = [];
-                    let uniqueKwSafety = 0;
-                    const attemptedKwsBg = new Set<string>();
-                    while (keywordsForBackgroundDealsCache.length < KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE && uniqueKwSafety < (curatedHomepageSearchTerms.length + 5)) {
-                        const rKw = await getRandomPopularSearchTerm();
-                        if (rKw && rKw.trim() !== '' && !attemptedKwsBg.has(rKw)) {
-                            keywordsForBackgroundDealsCache.push(rKw);
-                            attemptedKwsBg.add(rKw);
-                        }
-                        uniqueKwSafety++;
-                    }
-                    if (keywordsForBackgroundDealsCache.length === 0) { return; }
-
-                    const dealBatchesPromises = keywordsForBackgroundDealsCache.map(kw => fetchItems('deal', kw, true));
-                    const dealBatchesResults = await Promise.allSettled(dealBatchesPromises);
-                    const successfulDealFetches = dealBatchesResults.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<DealScopeItem[]>).value);
-                    const consolidatedDeals = successfulDealFetches.flat();
-                    const uniqueDealsMap = new Map(consolidatedDeals.map(i => [i.id, i]));
-                    const uniqueDeals = Array.from(uniqueDealsMap.values());
-
-                    if (uniqueDeals.length > 0) {
-                        const aiRankedDeals = await rankDealsAI(uniqueDeals, "general curated deals background cache from auctions");
-                        sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
-                    }
-                } catch (e: any) {
-                    console.warn("[AuctionsPage BG Cache HIT] Error during proactive GLOBAL CURATED deals caching:", e.message);
-                }
-            })();
-        }
-    }
-
-
-    setAllItems(processedItemsForState);
-    setIsLoading(false);
-    setInitialLoadComplete(true);
-
-    if (!error && processedItemsForState.length > 0) {
-      try {
-        sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: processedItemsForState, timestamp: Date.now() }));
-      } catch (e) {
-         console.warn(`[AuctionsPage loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e);
-      }
-    }
-
-    if (overallToastMessage && !error) {
-      toast(overallToastMessage);
-    } else if (error && !isAuthError) {
-      toast({ title: "Error Loading Auctions", description: error || "An unexpected error occurred.", variant: "destructive" });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [toast, isAuthError, currentQueryFromUrl]);
-
-  useEffect(() => {
-    const isGlobalCuratedView = !currentQueryFromUrl;
-    const activeAllItems = allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-
-    if (isGlobalCuratedView && initialLoadComplete && !topUpAttempted && !isLoading && !isRanking && !error && !isAuthError && activeAllItems.length < MIN_DESIRED_CURATED_ITEMS) {
-      setTopUpAttempted(true);
-      setIsLoading(true);
-
-      (async () => {
-        try {
-          const currentItemIds = new Set(activeAllItems.map(item => item.id));
-          const numAdditionalKeywords = Math.max(1, Math.floor(MAX_CURATED_FETCH_ATTEMPTS / 2) || 1);
-
-          const additionalKeywordsToFetch: string[] = [];
-          let uniqueKeywordSafety = 0;
-          const attemptedKeywordsForTopUp = new Set<string>();
-
-          while(additionalKeywordsToFetch.length < numAdditionalKeywords && uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 5)) {
-            const randomKw = await getRandomPopularSearchTerm();
-            if(randomKw && randomKw.trim() !== '' && !attemptedKeywordsForTopUp.has(randomKw)){
-              additionalKeywordsToFetch.push(randomKw);
-              attemptedKeywordsForTopUp.add(randomKw);
-            }
-            uniqueKeywordSafety++;
-          }
-
-          if (additionalKeywordsToFetch.length === 0) {
-              setIsLoading(false);
-              return;
-          }
-
-          const additionalFetchedBatchesPromises = additionalKeywordsToFetch.map(kw => fetchItems('auction', kw, true));
-          const additionalFetchedBatchesResults = await Promise.allSettled(additionalFetchedBatchesPromises);
-
-          const successfullyFetchedAdditionalItemsRaw = additionalFetchedBatchesResults
-              .filter(res => res.status === 'fulfilled')
-              .flatMap(res => (res as PromiseFulfilledResult<DealScopeItem[]>).value);
-
-          const newUniqueActiveAdditionalItems = successfullyFetchedAdditionalItemsRaw
-              .filter(item => !currentItemIds.has(item.id))
-              .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-
-          if (newUniqueActiveAdditionalItems.length > 0) {
-              setAllItems(prevAllItems => {
-                const currentActiveItemsInner = prevAllItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-                const combinedItems = [...currentActiveItemsInner, ...newUniqueActiveAdditionalItems];
-                const uniqueMap = new Map(combinedItems.map(item => [item.id, item]));
-                const finalToppedUpItems = Array.from(uniqueMap.values());
-
-                sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalToppedUpItems, timestamp: Date.now() }));
-                toast({ title: "More Curated Auctions Loaded", description: `Now displaying ${finalToppedUpItems.length} active auctions.` });
-                return finalToppedUpItems;
-              });
-          } else {
-              toast({ title: "Auction Top-up", description: "No new auctions found in this attempt." });
-          }
-        } catch (e: any) {
-          toast({ title: "Error Topping Up Auctions", description: e.message || "Failed to fetch additional auctions.", variant: "destructive" });
-        } finally {
-          setIsLoading(false);
-        }
-      })();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, toast]);
-
-  useEffect(() => {
-    const isGlobalCuratedView = !currentQueryFromUrl;
-
-    if (isGlobalCuratedView && initialLoadComplete && !backgroundDealsCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
-        setBackgroundDealsCacheAttempted(true);
-        (async () => {
-            try {
-                const cachedDeals = sessionStorage.getItem(CURATED_DEALS_CACHE_KEY);
-                if (cachedDeals) {
-                    const parsed = JSON.parse(cachedDeals);
-                     if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                        return;
-                    }
-                }
-                const keywordsForBackgroundDealsCache: string[] = [];
-                let uniqueKeywordSafety = 0;
-                const attemptedKwsBg = new Set<string>();
-                while(keywordsForBackgroundDealsCache.length < KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE && uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 5)) {
-                     const randomKw = await getRandomPopularSearchTerm();
-                     if(randomKw && randomKw.trim() !== '' && !attemptedKwsBg.has(randomKw)) {
-                         keywordsForBackgroundDealsCache.push(randomKw);
-                         attemptedKwsBg.add(randomKw);
-                     }
-                     uniqueKeywordSafety++;
-                }
-                if (keywordsForBackgroundDealsCache.length === 0) { return; }
-
-                const dealBatchesPromises = keywordsForBackgroundDealsCache.map(kw => fetchItems('deal', kw, true));
-                const dealBatchesResults = await Promise.allSettled(dealBatchesPromises);
-                const successfulDealFetches = dealBatchesResults
-                    .filter(result => result.status === 'fulfilled')
-                    .map(result => (result as PromiseFulfilledResult<DealScopeItem[]>).value);
-                const consolidatedDeals = successfulDealFetches.flat();
-                const uniqueDealsMap = new Map(consolidatedDeals.map(i => [i.id, i]));
-                const uniqueDeals = Array.from(uniqueDealsMap.values());
-
-                if (uniqueDeals.length > 0) {
-                    const aiRankedDeals = await rankDealsAI(uniqueDeals, "general curated deals background cache from auctions");
-                    sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
-                }
-            } catch (e: any) {
-                console.warn("[AuctionsPage BG Cache Effect - Fallback] Error during proactive GLOBAL CURATED deals caching:", e.message);
-            }
-        })();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allItems, initialLoadComplete, backgroundDealsCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError, toast]);
-
-  useEffect(() => {
-    const query = currentQueryFromUrl;
-    if (query && initialLoadComplete && !proactiveSearchDealsCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
-      setProactiveSearchDealsCacheAttempted(true);
-      (async () => {
-        try {
-          const searchedDealsCacheKey = SEARCHED_DEALS_CACHE_KEY_PREFIX + query;
-          const cachedDataString = sessionStorage.getItem(searchedDealsCacheKey);
-          if (cachedDataString) {
-            const cachedData = JSON.parse(cachedDataString);
-            if (cachedData && cachedData.items && (Date.now() - (cachedData.timestamp || 0) < STANDARD_CACHE_TTL_MS)) {
-              return;
-            }
-          }
-
-          const fetchedDeals = await fetchItems('deal', query, false);
-          if (fetchedDeals.length > 0) {
-            const aiRankedDeals = await rankDealsAI(fetchedDeals, query);
-            sessionStorage.setItem(searchedDealsCacheKey, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
-          }
-        } catch (e: any) {
-          console.warn(`[AuctionsPage Proactive Search Cache] Error during proactive SEARCHED deal caching for query "${query}":`, e.message);
-        }
-      })();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQueryFromUrl, initialLoadComplete, proactiveSearchDealsCacheAttempted, isLoading, isRanking, error, isAuthError, toast]);
-
-  const handleSearchSubmit = useCallback((query: string) => {
-    const newPath = query ? `/auctions?q=${encodeURIComponent(query)}` : '/auctions';
-    router.push(newPath);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
-
-  const handleLogoClick = useCallback(async () => {
-    setInputValue('');
-    sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
-    sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
-    router.push('/');
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router]);
-
-
-  const handleLoadMore = () => {
-    const newVisibleCount = visibleItemCount + ITEMS_PER_PAGE;
-    setVisibleItemCount(newVisibleCount);
-  };
-
-  const handleAnalyzeItem = (item: DealScopeItem) => {
-    setSelectedItemForAnalysis(item);
-    setIsAnalysisModalOpen(true);
-  };
-
-  const handleKeywordSearchFromModal = (keyword: string) => {
-    setIsAnalysisModalOpen(false);
-    router.push(`/auctions?q=${encodeURIComponent(keyword)}`);
-  };
-
-  const handleAuctionEnd = useCallback((endedItemId: string) => {
-    setAllItems(prevItems => prevItems.filter(item => item.id !== endedItemId));
-
-    const currentCacheKeyForEnd = (!currentQueryFromUrl) ? CURATED_AUCTIONS_CACHE_KEY : SEARCHED_AUCTIONS_CACHE_KEY_PREFIX + currentQueryFromUrl;
-
-    try {
-        const cachedDataString = sessionStorage.getItem(currentCacheKeyForEnd);
-        if (cachedDataString) {
-            const cachedData = JSON.parse(cachedDataString);
-            if (cachedData && cachedData.items && Array.isArray(cachedData.items)) {
-                const updatedCachedItems = cachedData.items.filter((i: DealScopeItem) => i.id !== endedItemId && (i.endTime ? new Date(i.endTime).getTime() > Date.now() : false));
-                if (updatedCachedItems.length > 0 || cachedData.items.length !== updatedCachedItems.length ) {
-                    sessionStorage.setItem(currentCacheKeyForEnd, JSON.stringify({ items: updatedCachedItems, timestamp: Date.now() }));
-                } else if (updatedCachedItems.length === 0 && cachedData.items.length > 0) {
-                     sessionStorage.removeItem(currentCacheKeyForEnd);
-                }
-            }
-        }
-    } catch (e) {
-        console.warn(`[AuctionsPage handleAuctionEnd] Error updating sessionStorage for ended auction ${endedItemId} in key ${currentCacheKeyForEnd}:`, e);
-    }
-
-    const endedItem = allItems.find(item => item.id === endedItemId);
-    const endedItemTitle = endedItem?.title || "An auction";
-    toast({
-        title: "Auction Ended",
-        description: `"${endedItemTitle.substring(0,30)}..." has ended and been removed.`
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQueryFromUrl, toast, allItems]);
-
-
-  useEffect(() => {
-    const activeItems = allItems.filter(item =>
-      item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false
-    );
-    setDisplayedItems(activeItems.slice(0, visibleItemCount));
-  }, [allItems, visibleItemCount]);
-
-  let noItemsTitle = "No Auctions Found";
-  let noItemsDescription = currentQueryFromUrl
-    ? `No auctions found for "${currentQueryFromUrl}". Try adjusting your search.`
-    : "We're fetching curated auctions. If nothing appears, try a specific search!";
-
-  const activeItemsForNoMessage = allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-  if (activeItemsForNoMessage.length === 0 && !isLoading && !isRanking && !error && currentQueryFromUrl === '') {
-      noItemsDescription = `We couldn't find any active curated auctions. Try a specific search or check back!`;
-  }
+  const {
+    inputValue,
+    setInputValue,
+    displayedItems,
+    allItems,
+    isLoading,
+    isRanking,
+    error,
+    isAuthError,
+    selectedItemForAnalysis,
+    isAnalysisModalOpen,
+    setIsAnalysisModalOpen,
+    handleSearchSubmit,
+    handleLogoClick,
+    handleLoadMore,
+    handleAnalyzeItem,
+    handleKeywordSearchFromModal,
+    handleAuctionEnd, // Specific to auctions
+    noItemsTitle,
+    noItemsDescription,
+    activeItemsForNoMessageCount,
+    ITEMS_PER_PAGE,
+  } = useItemPageLogic('auction');
 
 
   return (
@@ -541,7 +65,7 @@ function AuctionsPageContent() {
 
         {(isLoading || (isRanking && displayedItems.length === 0 && allItems.length === 0)) && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} /> }
 
-        {!isLoading && !isRanking && displayedItems.length === 0 && activeItemsForNoMessage.length === 0 && !error && (
+        {!isLoading && !isRanking && displayedItems.length === 0 && activeItemsForNoMessageCount === 0 && !error && (
            <NoItemsMessage title={noItemsTitle} description={noItemsDescription} />
         )}
 
@@ -557,7 +81,7 @@ function AuctionsPageContent() {
                 />
               ))}
             </div>
-            {activeItemsForNoMessage.length > displayedItems.length && (
+            { displayedItems.length < activeItemsForNoMessageCount && (
               <div className="text-center">
                 <Button onClick={handleLoadMore} size="lg" variant="outline">
                   <ShoppingBag className="mr-2 h-5 w-5" /> Load More Auctions
@@ -588,10 +112,8 @@ function AuctionsPageContent() {
 
 export default function AuctionsPage() {
   return (
-    <Suspense fallback={<ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}>
+    <Suspense fallback={<ItemGridLoadingSkeleton count={8} />}>
       <AuctionsPageContent />
     </Suspense>
   );
 }
-
-    

@@ -110,7 +110,7 @@ interface BrowseApiItemSummary {
   itemId: string;
   title: string;
   image?: { imageUrl: string };
-  price?: { value: string; currency: string }; // Made price potentially undefined
+  price?: { value: string; currency: string };
   itemAffiliateWebUrl?: string;
   itemWebUrl?: string;
   shortDescription?: string;
@@ -358,11 +358,11 @@ export const fetchItems = async (
       throw new Error(`Failed to fetch from eBay Browse API (${response.status}). Query: "${keywordsForApi}". Response: ${JSON.stringify(data, null, 2).substring(0, 500)}`);
     }
 
-    const rawItemCount = data.itemSummaries ? data.itemSummaries.length : 0;
+    // const rawItemCount = data.itemSummaries ? data.itemSummaries.length : 0; // Log removed for lightness
 
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
       if (data.warnings && data.warnings.length > 0) {
-          console.warn(`[eBay Service] eBay API Warnings for query "${keywordsForApi}":`, JSON.stringify(data.warnings, null, 2));
+          // console.warn(`[eBay Service] eBay API Warnings for query "${keywordsForApi}":`, JSON.stringify(data.warnings, null, 2)); // Keep warnings if needed
       }
       fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
@@ -373,9 +373,9 @@ export const fetchItems = async (
       .map(browseItem => transformBrowseItem(browseItem, type, keywordsForApi, isGlobalCuratedRequest))
       .filter((item): item is DealScopeItem => item !== null);
 
-    if (rawItemCount > 0 && transformedItems.length < rawItemCount) {
-      console.log(`[eBay Service] Filtered/Skipped items: Query "${keywordsForApi}", Type "${type}". Raw: ${rawItemCount}, Transformed: ${transformedItems.length}`);
-    }
+    // if (rawItemCount > 0 && transformedItems.length < rawItemCount) { // Log removed for lightness
+      // console.log(`[eBay Service] Filtered/Skipped items: Query "${keywordsForApi}", Type "${type}". Raw: ${rawItemCount}, Transformed: ${transformedItems.length}`);
+    // }
 
 
     const finalItems = transformedItems.filter(item => item.type === type);
@@ -393,4 +393,3 @@ export const fetchItems = async (
     throw new Error(`Failed to fetch eBay items (unknown error): ${String(error)}.`);
   }
 };
-
