@@ -47,7 +47,7 @@ export async function rankDeals(
     query: string
 ): Promise<BayBotItem[]> {
     if (!baybotDeals || baybotDeals.length === 0) {
-        console.log('[rankDeals entry] No BayBot deals provided to rank. Returning empty list.');
+        // console.log('[rankDeals entry] No BayBot deals provided to rank. Returning empty list.');
         return [];
     }
 
@@ -64,23 +64,23 @@ export async function rankDeals(
     }));
 
     const flowInput: RankDealsInput = { deals: aiDealsInput, query };
-    
+
     try {
         const rankedAiDeals: AIDeal[] = await rankDealsFlow(flowInput);
-        
-        // Reconstruct BayBotItem[] in the new order from AI.
-        // If rankedAiDeals is a subset, this will correctly map only those.
+
         const baybotDealMap = new Map(baybotDeals.map(deal => [deal.id, deal]));
         const reorderedBaybotDeals: BayBotItem[] = rankedAiDeals
             .map(aiDeal => baybotDealMap.get(aiDeal.id))
             .filter(Boolean) as BayBotItem[];
 
-        // Log if the AI returned a different number of items than it was given
-        if (rankedAiDeals.length !== baybotDeals.length && rankedAiDeals.length > 0) { // Added rankedAiDeals.length > 0 to avoid logging for empty returns
-             console.log(`[rankDeals entry] AI flow returned ${rankedAiDeals.length} deals out of ${baybotDeals.length} input deals for query "${query}". Client will handle fallbacks if needed.`);
+        // Log if the AI returned a different number of items than it was given (and it's not an empty list which is valid)
+        if (rankedAiDeals.length !== baybotDeals.length && rankedAiDeals.length > 0) {
+            //  console.log(`[rankDeals entry] AI flow returned ${rankedAiDeals.length} deals out of ${baybotDeals.length} input deals for query "${query}".`);
+        } else if (rankedAiDeals.length === 0 && baybotDeals.length > 0) {
+            console.warn(`[rankDeals entry] AI flow returned 0 qualified deals for query "${query}" from ${baybotDeals.length} inputs.`);
         }
-        
-        return reorderedBaybotDeals; // This could be a subset of original baybotDeals
+
+        return reorderedBaybotDeals;
 
     } catch (e) {
         console.error(`[rankDeals entry] Error calling rankDealsFlow for query "${query}". Returning original BayBot deal list as fallback. Error:`, e);
@@ -93,12 +93,12 @@ export async function rankDeals(
 const RankedDealIdsOutputSchema = z.array(z.string().describe('The ID of the deal in qualified and ranked order.'));
 
 const rankDealsPrompt = ai.definePrompt({
-  name: 'qualifyAndRankDealsPrompt', 
+  name: 'qualifyAndRankDealsPrompt',
   input: {
     schema: RankDealsInputSchema,
   },
   output: {
-    schema: RankedDealIdsOutputSchema, 
+    schema: RankedDealIdsOutputSchema,
   },
   prompt: `You are an expert shopping assistant. The following list of deals has already been pre-filtered and sorted by the system.
 Your task is to QUALIFY and RE-RANK these deals based on overall credibility, value, and relevance.
@@ -160,9 +160,9 @@ const rankDealsFlow = ai.defineFlow(
     inputSchema: RankDealsInputSchema,
     outputSchema: RankDealsOutputSchema, // Flow outputs full AIDeal objects after reordering
   },
-  async (input: RankDealsInput): Promise<AIDeal[]> => { 
+  async (input: RankDealsInput): Promise<AIDeal[]> => {
     if (!input.deals || input.deals.length === 0) {
-      console.log('[rankDealsFlow] No deals provided to rank. Returning empty list.');
+      // console.log('[rankDealsFlow] No deals provided to rank. Returning empty list.');
       return [];
     }
 
@@ -171,38 +171,34 @@ const rankDealsFlow = ai.defineFlow(
 
       if (!rankedIds) { // Prompt failed or returned null/undefined
           console.warn(
-          `[rankDealsFlow] AI ranking (IDs) prompt did not return a valid output (was null/undefined). Query: "${input.query}". Deals count: ${input.deals.length}. Falling back to original deal list order.`
+          `[rankDealsFlow] AI ranking (IDs) prompt returned null/undefined. Query: "${input.query}". Deals count: ${input.deals.length}. Falling back to original deal list order.`
           );
-          return input.deals; // Fallback to full original list if AI prompt fails badly
+          return input.deals; // Fallback to full original list
       }
-      
+
       if (rankedIds.length === 0) {
-        console.log(
-          `[rankDealsFlow] AI ranking (IDs) prompt returned an empty list (0 qualified deals). Query: "${input.query}". Deals count: ${input.deals.length}. Returning empty list from flow.`
-        );
+        // console.log(`[rankDealsFlow] AI ranking (IDs) prompt returned an empty list (0 qualified deals) for query: "${input.query}".`);
         return []; // AI explicitly said no deals are qualified
       }
 
-      // Validate for duplicate IDs in AI output
       const outputIdsSet = new Set(rankedIds);
       if (rankedIds.length !== outputIdsSet.size) {
         console.warn(
-          `[rankDealsFlow] AI ranking (IDs) output contained duplicate IDs. Unique output IDs count: ${outputIdsSet.size}, Total output IDs: ${rankedIds.length}. Query: "${input.query}". Falling back to original deal list order.`
+          `[rankDealsFlow] AI ranking (IDs) output contained duplicate IDs. Query: "${input.query}". Falling back to original deal list order.`
         );
         return input.deals;
       }
-      
+
       const dealMap = new Map(input.deals.map(deal => [deal.id, deal]));
-      // Construct the list based on AI's ranked IDs, filtering out any IDs AI might have hallucinated (not in original input)
       const reorderedDeals: AIDeal[] = rankedIds
         .map(id => dealMap.get(id))
         .filter(Boolean) as AIDeal[];
-      
+
       if (reorderedDeals.length !== rankedIds.length) {
-          console.warn(`[rankDealsFlow] AI returned ${rankedIds.length} IDs, but only ${reorderedDeals.length} could be mapped to original deals. Some IDs might have been hallucinated. Query: "${input.query}". Proceeding with mapped deals.`);
+          console.warn(`[rankDealsFlow] AI returned ${rankedIds.length} IDs, but only ${reorderedDeals.length} mapped to original deals. Query: "${input.query}".`);
       }
-      
-      console.log(`[rankDealsFlow] AI qualified and reordered ${reorderedDeals.length} deals (out of ${input.deals.length} originally provided) for query: "${input.query}".`);
+
+      // console.log(`[rankDealsFlow] AI qualified and reordered ${reorderedDeals.length} deals (out of ${input.deals.length} inputs) for query: "${input.query}".`);
       return reorderedDeals;
 
     } catch (e) {
@@ -211,4 +207,3 @@ const rankDealsFlow = ai.defineFlow(
     }
   }
 );
-

@@ -33,8 +33,8 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
       const performAnalysis = async () => {
         setIsLoading(true);
         setError(null);
-        setAnalysis(null);
-        setAnimatedRiskScore(0);
+        setAnalysis(null); // Clear previous analysis
+        setAnimatedRiskScore(0); // Reset animated scores
         setAnimatedRarityScore(0);
 
         try {
@@ -42,7 +42,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
             title: item.title,
             description: item.description || "N/A",
             price: item.price,
-            originalPrice: item.originalPrice || item.price,
+            originalPrice: item.originalPrice || item.price, // Ensure originalPrice has a fallback
             discountPercentage: item.discountPercentage || 0,
             imageUrl: item.imageUrl,
           };
@@ -57,11 +57,12 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
       };
       performAnalysis();
     } else if (isOpen && item && item.type === 'auction') {
+      // Handle auctions - currently no analysis, so set states accordingly
       setAnalysis(null);
       setError("AI analysis is currently available for deals only.");
       setIsLoading(false);
     }
-  }, [isOpen, item]);
+  }, [isOpen, item]); // Dependencies: isOpen and item
 
   useEffect(() => {
     if (analysis) {
@@ -72,7 +73,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
         clearTimeout(rarityTimer);
       };
     }
-  }, [analysis]);
+  }, [analysis]); // Dependency: analysis
 
   if (!item) return null;
 
@@ -80,11 +81,11 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[525px] glass-popover">
         <DialogHeader>
-          <DialogTitle className="font-headline text-xl flex items-center text-foreground"> {/* Changed text-2xl to text-xl */}
+          <DialogTitle className="font-headline text-xl flex items-center text-foreground">
             <Zap className="w-5 h-5 mr-2 text-primary" /> AI Analysis: {item.title}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {item.type === 'deal' ? "AI-powered insights for your selected item." : "AI Analysis is for deals only."} {/* Updated description */}
+            {item.type === 'deal' ? "AI-powered insights for your selected item." : "AI Analysis is for deals only."}
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-6">
@@ -94,7 +95,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
               <p className="text-muted-foreground">Analyzing deal, please wait...</p>
             </div>
           )}
-          {error && (
+          {error && ( // Display error for both deals and auctions if applicable
             <div className="flex flex-col items-center justify-center h-40 text-destructive">
               <AlertTriangle className="h-12 w-12 mb-4" />
               <p>{error}</p>
@@ -102,7 +103,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
           )}
 
           {item.type === 'deal' && !isLoading && !error && <DealPriceBreakdown item={item} /> }
-          
+
           {analysis && !isLoading && !error && item.type === 'deal' && (
             <>
               <AIScoresDisplay
@@ -113,8 +114,9 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
               <KeywordPillsDisplay keywords={analysis.keywords} onKeywordClick={onKeywordSearch} />
             </>
           )}
-          
-          {isLoading && item.type === 'deal' && (item.originalPrice || (item.discountPercentage && item.discountPercentage > 0)) && (
+
+          {/* Message for when deal analysis is loading but price breakdown can show */}
+          {isLoading && item.type === 'deal' && (item.originalPrice || (item.discountPercentage && item.discountPercentage > 0)) && !analysis && (
              <p className="text-center text-sm text-muted-foreground mt-2">Loading AI insights...</p>
            )}
         </div>

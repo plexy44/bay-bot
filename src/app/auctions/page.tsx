@@ -58,18 +58,25 @@ function AuctionsPageContent() {
 
   const { toast } = useToast();
 
+  // State flags for controlling fetching and caching logic
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [topUpAttempted, setTopUpAttempted] = useState(false);
   const [backgroundDealsCacheAttempted, setBackgroundDealsCacheAttempted] = useState(false);
   const [proactiveSearchDealsCacheAttempted, setProactiveSearchDealsCacheAttempted] = useState(false);
-
+  // loadedFromCacheTimestamp is not strictly needed for auctions as they don't have a "soft refresh" like deals
 
   useEffect(() => {
+    // This effect runs when the search query changes.
+    // Reset all relevant state flags to ensure a clean slate for the new view (curated or searched).
+    console.log(`[AuctionsPage Query Change Effect] URL query changed to: "${currentQueryFromUrl}". Resetting load/cache flags.`);
     setInitialLoadComplete(false);
     setTopUpAttempted(false);
     setBackgroundDealsCacheAttempted(false);
     setProactiveSearchDealsCacheAttempted(false);
-  }, [currentQueryFromUrl]);
+    setInputValue(currentQueryFromUrl);
+    loadItems(currentQueryFromUrl);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQueryFromUrl]); // loadItems is intentionally omitted
 
   const loadItems = useCallback(async (queryToLoad: string) => {
     console.log(`[AuctionsPage loadItems] Initiating. Query: "${queryToLoad}"`);
@@ -82,13 +89,6 @@ function AuctionsPageContent() {
     setIsRanking(false);
     setError(null);
     setIsAuthError(false);
-
-    if (isGlobalCuratedRequest) {
-      setInitialLoadComplete(false);
-      setTopUpAttempted(false);
-    } else {
-      setProactiveSearchDealsCacheAttempted(false);
-    }
 
     let processedItemsForState: BayBotItem[] = [];
     let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
@@ -104,17 +104,19 @@ function AuctionsPageContent() {
             item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false
           );
           if (activeCachedItems.length > 0) {
-            console.log(`[AuctionsPage loadItems] Found ${activeCachedItems.length} active items in fresh sessionStorage for key "${currentCacheKey}".`);
+            console.log(`[AuctionsPage loadItems] CACHE HIT: Found ${activeCachedItems.length} active items for key "${currentCacheKey}".`);
             processedItemsForState = activeCachedItems;
             overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : "Searched"} Auctions`, description: `Displaying previously fetched active auctions${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
           } else {
             sessionStorage.removeItem(currentCacheKey);
-            console.log(`[AuctionsPage loadItems] Cache for key "${currentCacheKey}" had no active items or was stale. Cleared.`);
+            console.log(`[AuctionsPage loadItems] CACHE STALE/INACTIVE for key "${currentCacheKey}". Cleared.`);
           }
         } else {
           sessionStorage.removeItem(currentCacheKey);
-          console.log(`[AuctionsPage loadItems] Cache for key "${currentCacheKey}" was stale or invalid. Cleared.`);
+          console.log(`[AuctionsPage loadItems] CACHE STALE/INVALID for key "${currentCacheKey}". Cleared.`);
         }
+      } else {
+          console.log(`[AuctionsPage loadItems] CACHE MISS for key "${currentCacheKey}".`);
       }
     } catch (e) {
       console.warn(`[AuctionsPage loadItems] Error with sessionStorage for key "${currentCacheKey}":`, e);
@@ -123,7 +125,7 @@ function AuctionsPageContent() {
 
     if (processedItemsForState.length === 0) {
       if (isGlobalCuratedRequest) {
-        console.log(`[AuctionsPage loadItems] Curated auctions: No valid cache. Starting robust initial fetch with multiple keywords.`);
+        console.log(`[AuctionsPage loadItems] Curated auctions: No valid cache. Starting robust initial fetch.`);
         const initialKeywordsToFetch: string[] = [];
         const attemptedKeywordsForSession = new Set<string>();
         let uniqueKeywordFetchAttempts = 0;
@@ -138,16 +140,16 @@ function AuctionsPageContent() {
         }
 
         if (initialKeywordsToFetch.length === 0) {
-          console.warn("[AuctionsPage loadItems] Curated (Initial): Failed to get any unique keywords for initial robust fetch.");
+          console.warn("[AuctionsPage loadItems] Curated (Initial): Failed to get any unique keywords.");
           setError("Could not find keywords for curated auctions.");
         } else {
-          console.log(`[AuctionsPage loadItems] Curated (Initial): Fetching in parallel for ${initialKeywordsToFetch.length} keywords: ${initialKeywordsToFetch.join(', ')}.`);
-          
+          // console.log(`[AuctionsPage loadItems] Curated (Initial): Fetching for ${initialKeywordsToFetch.length} keywords: ${initialKeywordsToFetch.join(', ')}.`);
+
           const initialFetchPromises = initialKeywordsToFetch.map(kw =>
-            fetchItems('auction', kw, true).catch(e => { 
+            fetchItems('auction', kw, true).catch(e => {
               console.error(`[AuctionsPage loadItems] Error fetching auctions for keyword "${kw}":`, e);
               if (e.message?.includes("Authentication Failure") || e.message?.includes("invalid_client")) setIsAuthError(true);
-              return []; 
+              return [];
             })
           );
           const initialResultsSettled = await Promise.all(initialFetchPromises);
@@ -173,18 +175,18 @@ function AuctionsPageContent() {
 
         if (isGlobalCuratedRequest && !backgroundDealsCacheAttempted && !isAuthError) {
             setBackgroundDealsCacheAttempted(true);
-            console.log("[AuctionsPage loadItems] Initiating proactive background cache for GLOBAL CURATED deals (from auctions cache miss path).");
+            console.log("[AuctionsPage loadItems] CURATED AUCTIONS (CACHE MISS): Initiating proactive BG cache for GLOBAL CURATED deals.");
             (async () => {
                 try {
                     const cachedDeals = sessionStorage.getItem(CURATED_DEALS_CACHE_KEY);
                     if (cachedDeals) {
                         const parsed = JSON.parse(cachedDeals);
                         if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                            console.log("[AuctionsPage loadItems/BG Cache] Fresh GLOBAL CURATED deals already in cache. Skipping proactive fetch.");
+                            // console.log("[AuctionsPage BG Cache] Fresh GLOBAL CURATED deals already in cache. Skipping.");
                             return;
                         }
                     }
-                    console.log("[AuctionsPage loadItems/BG Cache] No fresh GLOBAL CURATED deals. Initiating proactive fetch for deals.");
+                    // console.log("[AuctionsPage BG Cache] No fresh GLOBAL CURATED deals. Fetching.");
                     const keywordsForBackgroundDealsCache: string[] = [];
                     let uniqueKwSafety = 0;
                     const attemptedKwsBg = new Set<string>();
@@ -196,10 +198,7 @@ function AuctionsPageContent() {
                         }
                         uniqueKwSafety++;
                     }
-                    if (keywordsForBackgroundDealsCache.length === 0) { 
-                        console.warn("[AuctionsPage loadItems/BG Cache] No unique keywords for proactive GLOBAL CURATED deal caching.");
-                        return; 
-                    }
+                    if (keywordsForBackgroundDealsCache.length === 0) { return; }
 
                     const dealBatchesPromises = keywordsForBackgroundDealsCache.map(kw => fetchItems('deal', kw, true));
                     const dealBatchesResults = await Promise.allSettled(dealBatchesPromises);
@@ -211,18 +210,16 @@ function AuctionsPageContent() {
                     if (uniqueDeals.length > 0) {
                         const aiRankedDeals = await rankDealsAI(uniqueDeals, "general curated deals background cache from auctions");
                         sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
-                        console.log(`[AuctionsPage loadItems/BG Cache] Proactively cached ${aiRankedDeals.length} AI-ranked GLOBAL CURATED deals.`);
-                    } else {
-                        console.log("[AuctionsPage loadItems/BG Cache] No GLOBAL CURATED deals found to proactively cache.");
+                        console.log(`[AuctionsPage BG Cache] Proactively cached ${aiRankedDeals.length} AI-ranked GLOBAL CURATED deals.`);
                     }
                 } catch (e: any) {
-                    console.error("[AuctionsPage loadItems/BG Cache] Error during proactive GLOBAL CURATED deals caching:", e);
+                    console.error("[AuctionsPage BG Cache] Error during proactive GLOBAL CURATED deals caching:", e);
                 }
             })();
         }
 
-      } else { 
-        console.log(`[AuctionsPage loadItems] Standard auction search. eBay Query: "${queryToLoad}"`);
+      } else { // User Search for Auctions
+        console.log(`[AuctionsPage loadItems] User auction search. eBay Query: "${queryToLoad}"`);
         let fetchedItemsFromServer: BayBotItem[] = [];
         try {
           fetchedItemsFromServer = await fetchItems('auction', queryToLoad, false);
@@ -231,26 +228,21 @@ function AuctionsPageContent() {
           );
 
           if (activeFetchedItems.length > 0) {
-            console.log(`[AuctionsPage loadItems] Fetched ${activeFetchedItems.length} active auctions for query "${queryToLoad}". Passing to AI qualification.`);
+            // console.log(`[AuctionsPage loadItems] Fetched ${activeFetchedItems.length} active auctions for query "${queryToLoad}". Passing to AI.`);
             setIsRanking(true);
             const aiQualifiedAuctions = await qualifyAuctionsAI(activeFetchedItems, queryToLoad);
-            console.log(`[AuctionsPage loadItems] AI Qualification for query "${queryToLoad}" returned ${aiQualifiedAuctions.length} items. Input to AI was ${activeFetchedItems.length} items.`);
+            console.log(`[AuctionsPage loadItems] AI Qualification for query "${queryToLoad}" returned ${aiQualifiedAuctions.length} items (from ${activeFetchedItems.length} inputs).`);
             setIsRanking(false);
             processedItemsForState = aiQualifiedAuctions;
 
             if (aiQualifiedAuctions.length > 0) {
               overallToastMessage = { title: "Searched Auctions: AI Qualified", description: `Displaying ${aiQualifiedAuctions.length} AI-qualified auctions for "${queryToLoad}".` };
-              if (aiQualifiedAuctions.length < activeFetchedItems.length) {
-                console.log(`[AuctionsPage loadItems] AI qualified ${aiQualifiedAuctions.length} out of ${activeFetchedItems.length} active fetched auctions for query "${queryToLoad}".`);
-              }
             } else {
-              overallToastMessage = { title: "No Auctions Found by AI", description: `AI found no suitable auctions for "${queryToLoad}" from ${activeFetchedItems.length} fetched. Displaying server results.` };
-              console.log(`[AuctionsPage loadItems] AI qualified 0 auctions from ${activeFetchedItems.length} active fetched auctions for query "${queryToLoad}". Server results will be shown.`);
-              // If AI returns 0, processedItemsForState should contain the fallback from qualifyAuctionsAI (which is original items)
+              overallToastMessage = { title: "No Auctions Found by AI", description: `AI found no suitable auctions for "${queryToLoad}" from ${activeFetchedItems.length} fetched. Displaying server results if any.` };
             }
           } else {
             overallToastMessage = { title: "No Auctions Found", description: `No active auctions found for "${queryToLoad}".` };
-            console.log(`[AuctionsPage loadItems] No active auctions fetched from server for query "${queryToLoad}".`);
+            // console.log(`[AuctionsPage loadItems] No active auctions fetched from server for query "${queryToLoad}".`);
           }
         } catch (e: any) {
           console.error(`[AuctionsPage loadItems] Failed to load auctions for query '${queryToLoad}'. Error:`, e);
@@ -267,20 +259,21 @@ function AuctionsPageContent() {
         }
       }
     } else { // Loaded from cache path
+        // console.log(`[AuctionsPage loadItems] Using ${processedItemsForState.length} items from CACHE for key "${currentCacheKey}".`);
         if (isGlobalCuratedRequest && !backgroundDealsCacheAttempted && !isAuthError) {
              setBackgroundDealsCacheAttempted(true);
-             console.log("[AuctionsPage loadItems] Initiating proactive background cache for GLOBAL CURATED deals (from auctions cache HIT path).");
+             console.log("[AuctionsPage loadItems] CURATED AUCTIONS (CACHE HIT): Initiating proactive BG cache for GLOBAL CURATED deals.");
             (async () => {
                 try {
                     const cachedDeals = sessionStorage.getItem(CURATED_DEALS_CACHE_KEY);
                     if (cachedDeals) {
                         const parsed = JSON.parse(cachedDeals);
                         if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                            console.log("[AuctionsPage loadItems/BG Cache HIT] Fresh GLOBAL CURATED deals already in cache. Skipping proactive fetch.");
+                            // console.log("[AuctionsPage BG Cache HIT] Fresh GLOBAL CURATED deals already in cache. Skipping.");
                             return;
                         }
                     }
-                    console.log("[AuctionsPage loadItems/BG Cache HIT] No fresh GLOBAL CURATED deals. Initiating proactive fetch for deals.");
+                    // console.log("[AuctionsPage BG Cache HIT] No fresh GLOBAL CURATED deals. Fetching.");
                     const keywordsForBackgroundDealsCache: string[] = [];
                     let uniqueKwSafety = 0;
                     const attemptedKwsBg = new Set<string>();
@@ -292,10 +285,7 @@ function AuctionsPageContent() {
                         }
                         uniqueKwSafety++;
                     }
-                    if (keywordsForBackgroundDealsCache.length === 0) { 
-                        console.warn("[AuctionsPage loadItems/BG Cache HIT] No unique keywords for proactive GLOBAL CURATED deal caching.");
-                        return; 
-                    }
+                    if (keywordsForBackgroundDealsCache.length === 0) { return; }
 
                     const dealBatchesPromises = keywordsForBackgroundDealsCache.map(kw => fetchItems('deal', kw, true));
                     const dealBatchesResults = await Promise.allSettled(dealBatchesPromises);
@@ -307,12 +297,10 @@ function AuctionsPageContent() {
                     if (uniqueDeals.length > 0) {
                         const aiRankedDeals = await rankDealsAI(uniqueDeals, "general curated deals background cache from auctions");
                         sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
-                        console.log(`[AuctionsPage loadItems/BG Cache HIT] Proactively cached ${aiRankedDeals.length} AI-ranked GLOBAL CURATED deals.`);
-                    } else {
-                        console.log("[AuctionsPage loadItems/BG Cache HIT] No GLOBAL CURATED deals found to proactively cache.");
+                        console.log(`[AuctionsPage BG Cache HIT] Proactively cached ${aiRankedDeals.length} AI-ranked GLOBAL CURATED deals.`);
                     }
                 } catch (e: any) {
-                    console.error("[AuctionsPage loadItems/BG Cache HIT] Error during proactive GLOBAL CURATED deals caching:", e);
+                    console.error("[AuctionsPage BG Cache HIT] Error during proactive GLOBAL CURATED deals caching:", e);
                 }
             })();
         }
@@ -326,9 +314,9 @@ function AuctionsPageContent() {
     if (!error && processedItemsForState.length > 0) {
       try {
         sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: processedItemsForState, timestamp: Date.now() }));
-        console.log(`[AuctionsPage loadItems] Saved ${processedItemsForState.length} items to sessionStorage for key "${currentCacheKey}".`);
+        // console.log(`[AuctionsPage loadItems] Saved ${processedItemsForState.length} items to sessionStorage for key "${currentCacheKey}".`);
       } catch (e) {
-         console.warn(`[AuctionsPage loadItems] Error saving items to sessionStorage for key "${currentCacheKey}":`, e);
+         console.warn(`[AuctionsPage loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e);
       }
     }
 
@@ -337,15 +325,16 @@ function AuctionsPageContent() {
     } else if (error && !isAuthError) {
       toast({ title: "Error Loading Auctions", description: error || "An unexpected error occurred.", variant: "destructive" });
     }
-    console.log(`[AuctionsPage loadItems] Finalizing. Total processed items for state: ${processedItemsForState.length} for query "${queryToLoad}".`);
-  }, [toast]); 
+    // console.log(`[AuctionsPage loadItems] Finalizing. Items for state: ${processedItemsForState.length} for query "${queryToLoad}".`);
+  }, [toast, isAuthError, currentQueryFromUrl]); // Removed backgroundDealsCacheAttempted
 
+  // Top-up for GLOBAL CURATED AUCTIONS
   useEffect(() => {
     const isGlobalCuratedView = !currentQueryFromUrl;
     const activeAllItems = allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
 
     if (isGlobalCuratedView && initialLoadComplete && !topUpAttempted && !isLoading && !isRanking && !error && !isAuthError && activeAllItems.length < MIN_DESIRED_CURATED_ITEMS) {
-      console.log(`[AuctionsPage Top-Up Effect] Current active items ${activeAllItems.length} < ${MIN_DESIRED_CURATED_ITEMS}. Initiating top-up for GLOBAL CURATED AUCTIONS.`);
+      console.log(`[AuctionsPage Top-Up] Current active ${activeAllItems.length} < ${MIN_DESIRED_CURATED_ITEMS}. Initiating top-up.`);
       setTopUpAttempted(true);
       setIsLoading(true);
 
@@ -368,13 +357,13 @@ function AuctionsPageContent() {
           }
 
           if (additionalKeywordsToFetch.length === 0) {
-              console.warn("[AuctionsPage Top-Up Effect] No valid additional unique keywords for auctions top-up. Aborting.");
+              console.warn("[AuctionsPage Top-Up] No valid additional unique keywords. Aborting.");
               setIsLoading(false);
               return;
           }
 
-          console.log(`[AuctionsPage Top-Up Effect] Fetching auctions for ${additionalKeywordsToFetch.length} additional keywords: ${additionalKeywordsToFetch.join(', ')}`);
-          const additionalFetchedBatchesPromises = additionalKeywordsToFetch.map(kw => fetchItems('auction', kw, true)); 
+          // console.log(`[AuctionsPage Top-Up] Fetching for ${additionalKeywordsToFetch.length} additional keywords: ${additionalKeywordsToFetch.join(', ')}`);
+          const additionalFetchedBatchesPromises = additionalKeywordsToFetch.map(kw => fetchItems('auction', kw, true));
           const additionalFetchedBatchesResults = await Promise.allSettled(additionalFetchedBatchesPromises);
 
           const successfullyFetchedAdditionalItemsRaw = additionalFetchedBatchesResults
@@ -386,8 +375,7 @@ function AuctionsPageContent() {
               .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
 
           if (newUniqueActiveAdditionalItems.length > 0) {
-              console.log(`[AuctionsPage Top-Up Effect] Fetched ${newUniqueActiveAdditionalItems.length} new unique, active additional auctions.`);
-
+              // console.log(`[AuctionsPage Top-Up] Fetched ${newUniqueActiveAdditionalItems.length} new unique, active additional auctions.`);
               setAllItems(prevAllItems => {
                 const currentActiveItemsInner = prevAllItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
                 const combinedItems = [...currentActiveItemsInner, ...newUniqueActiveAdditionalItems];
@@ -399,11 +387,11 @@ function AuctionsPageContent() {
                 return finalToppedUpItems;
               });
           } else {
-              console.log(`[AuctionsPage Top-Up Effect] No new, active additional auctions found from top-up fetch.`);
+              // console.log(`[AuctionsPage Top-Up] No new, active additional auctions found.`);
               toast({ title: "Auction Top-up", description: "No new auctions found in this attempt." });
           }
         } catch (e: any) {
-          console.error("[AuctionsPage Top-Up Effect] Error during auctions top-up:", e);
+          console.error("[AuctionsPage Top-Up] Error:", e);
           toast({ title: "Error Topping Up Auctions", description: e.message || "Failed to fetch additional auctions.", variant: "destructive" });
         } finally {
           setIsLoading(false);
@@ -412,75 +400,65 @@ function AuctionsPageContent() {
     }
   }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, toast]);
 
+  // Fallback: Background cache for Global Curated Deals IF auctions were loaded from cache by loadItems
   useEffect(() => {
     const isGlobalCuratedView = !currentQueryFromUrl;
-    if (isGlobalCuratedView && initialLoadComplete && !backgroundDealsCacheAttempted && !isLoading && !isRanking && !error && !isAuthError && allItems.length > 0) {
-        setBackgroundDealsCacheAttempted(true);
-        console.log("[AuctionsPage Background Cache Effect] Conditions met for pre-caching GLOBAL CURATED deals.");
+    const auctionsLikelyLoadedFromCache = allItems.length > 0 && processedItemsForState.length > 0 && allItems[0].id === processedItemsForState[0].id; // Heuristic
 
+    if (isGlobalCuratedView && initialLoadComplete && auctionsLikelyLoadedFromCache && !backgroundDealsCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
+        setBackgroundDealsCacheAttempted(true);
+        console.log("[AuctionsPage BG Cache Effect - Fallback] Conditions met for pre-caching GLOBAL CURATED deals.");
         (async () => {
             try {
                 const cachedDeals = sessionStorage.getItem(CURATED_DEALS_CACHE_KEY);
                 if (cachedDeals) {
                     const parsed = JSON.parse(cachedDeals);
                      if (parsed.items && parsed.timestamp && (Date.now() - parsed.timestamp < GLOBAL_CURATED_CACHE_TTL_MS)) {
-                        console.log("[AuctionsPage Background Cache Effect] Fresh GLOBAL CURATED deals already in cache. Skipping proactive fetch by useEffect.");
+                        // console.log("[AuctionsPage BG Cache Effect - Fallback] Fresh GLOBAL CURATED deals already in cache. Skipping.");
                         return;
                     }
                 }
-                console.log("[AuctionsPage Background Cache Effect] No fresh GLOBAL CURATED deals in cache. Initiating proactive fetch for deals by useEffect.");
-
+                // console.log("[AuctionsPage BG Cache Effect - Fallback] No fresh GLOBAL CURATED deals. Fetching.");
                 const keywordsForBackgroundDealsCache: string[] = [];
                 let uniqueKeywordSafety = 0;
-                const attemptedKeywordsBg = new Set<string>();
-
+                const attemptedKwsBg = new Set<string>();
                 while(keywordsForBackgroundDealsCache.length < KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE && uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 5)) {
                      const randomKw = await getRandomPopularSearchTerm();
-                     if(randomKw && randomKw.trim() !== '' && !attemptedKeywordsBg.has(randomKw)) {
+                     if(randomKw && randomKw.trim() !== '' && !attemptedKwsBg.has(randomKw)) {
                          keywordsForBackgroundDealsCache.push(randomKw);
-                         attemptedKeywordsBg.add(randomKw);
+                         attemptedKwsBg.add(randomKw);
                      }
                      uniqueKeywordSafety++;
                 }
+                if (keywordsForBackgroundDealsCache.length === 0) { return; }
 
-                if (keywordsForBackgroundDealsCache.length === 0) {
-                    console.warn("[AuctionsPage Background Cache Effect] No unique keywords generated for proactive GLOBAL CURATED deals caching.");
-                    return;
-                }
-                
-                console.log(`[AuctionsPage Background Cache Effect] Fetching deals for GLOBAL CURATED background cache with keywords: ${keywordsForBackgroundDealsCache.join(', ')}`);
                 const dealBatchesPromises = keywordsForBackgroundDealsCache.map(kw => fetchItems('deal', kw, true));
                 const dealBatchesResults = await Promise.allSettled(dealBatchesPromises);
-
                 const successfulDealFetches = dealBatchesResults
                     .filter(result => result.status === 'fulfilled')
                     .map(result => (result as PromiseFulfilledResult<BayBotItem[]>).value);
-
                 const consolidatedDeals = successfulDealFetches.flat();
-                const uniqueDealsMap = new Map<string, BayBotItem>();
-                consolidatedDeals.forEach(item => { if (!uniqueDealsMap.has(item.id)) uniqueDealsMap.set(item.id, item); });
+                const uniqueDealsMap = new Map(consolidatedDeals.map(i => [i.id, i]));
                 const uniqueDeals = Array.from(uniqueDealsMap.values());
 
                 if (uniqueDeals.length > 0) {
                     const aiRankedDeals = await rankDealsAI(uniqueDeals, "general curated deals background cache from auctions");
                     sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
-                    console.log(`[AuctionsPage Background Cache Effect] Proactively cached ${aiRankedDeals.length} AI-ranked GLOBAL CURATED deals.`);
-                } else {
-                    console.log("[AuctionsPage Background Cache Effect] No GLOBAL CURATED deals found to proactively cache.");
+                    console.log(`[AuctionsPage BG Cache Effect - Fallback] Proactively cached ${aiRankedDeals.length} AI-ranked GLOBAL CURATED deals.`);
                 }
             } catch (e: any) {
-                console.error("[AuctionsPage Background Cache Effect] Error during proactive GLOBAL CURATED deals caching:", e);
+                console.error("[AuctionsPage BG Cache Effect - Fallback] Error during proactive GLOBAL CURATED deals caching:", e);
             }
         })();
     }
-  }, [allItems, initialLoadComplete, backgroundDealsCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError]);
+  }, [allItems, initialLoadComplete, backgroundDealsCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError, /* processedItemsForState could be added but might cause loops */]);
 
+  // Proactive cache for SEARCHED deals (if current page is auctions search results)
   useEffect(() => {
     const query = currentQueryFromUrl;
     if (query && initialLoadComplete && !proactiveSearchDealsCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
       setProactiveSearchDealsCacheAttempted(true);
       console.log(`[AuctionsPage Proactive Search Cache] Conditions met for pre-caching SEARCHED deals for query: "${query}"`);
-
       (async () => {
         try {
           const searchedDealsCacheKey = SEARCHED_DEALS_CACHE_KEY_PREFIX + query;
@@ -488,19 +466,17 @@ function AuctionsPageContent() {
           if (cachedDataString) {
             const cachedData = JSON.parse(cachedDataString);
             if (cachedData && cachedData.items && (Date.now() - (cachedData.timestamp || 0) < STANDARD_CACHE_TTL_MS)) {
-              console.log(`[AuctionsPage Proactive Search Cache] Fresh SEARCHED deals for query "${query}" already in cache. Skipping proactive fetch.`);
+              // console.log(`[AuctionsPage Proactive Search Cache] Fresh SEARCHED deals for query "${query}" already in cache. Skipping.`);
               return;
             }
           }
-          console.log(`[AuctionsPage Proactive Search Cache] No fresh SEARCHED deals in cache for query "${query}". Initiating proactive fetch.`);
+          // console.log(`[AuctionsPage Proactive Search Cache] No fresh SEARCHED deals in cache for query "${query}". Fetching.`);
 
-          const fetchedDeals = await fetchItems('deal', query, false); 
+          const fetchedDeals = await fetchItems('deal', query, false);
           if (fetchedDeals.length > 0) {
             const aiRankedDeals = await rankDealsAI(fetchedDeals, query);
             sessionStorage.setItem(searchedDealsCacheKey, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
             console.log(`[AuctionsPage Proactive Search Cache] Proactively cached ${aiRankedDeals.length} AI-ranked SEARCHED deals for query "${query}".`);
-          } else {
-            console.log(`[AuctionsPage Proactive Search Cache] No SEARCHED deals found to proactively cache for query "${query}".`);
           }
         } catch (e: any) {
           console.error(`[AuctionsPage Proactive Search Cache] Error during proactive SEARCHED deal caching for query "${query}":`, e);
@@ -508,14 +484,6 @@ function AuctionsPageContent() {
       })();
     }
   }, [currentQueryFromUrl, initialLoadComplete, proactiveSearchDealsCacheAttempted, isLoading, isRanking, error, isAuthError]);
-
-
-  useEffect(() => {
-    console.log(`[AuctionsPage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
-    setInputValue(currentQueryFromUrl);
-    loadItems(currentQueryFromUrl);
-  }, [currentQueryFromUrl, loadItems]);
-
 
   const handleSearchSubmit = useCallback((query: string) => {
     const newPath = query ? `/auctions?q=${encodeURIComponent(query)}` : '/auctions';
@@ -526,7 +494,7 @@ function AuctionsPageContent() {
     console.log('[AuctionsPage handleLogoClick] Logo clicked. Clearing global curated caches and navigating to homepage (deals).');
     sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
     sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
-    setInputValue('');
+    // setInputValue(''); // This will be set by the router push and subsequent effect
     router.push('/');
   }, [router]);
 
@@ -543,7 +511,7 @@ function AuctionsPageContent() {
 
   const handleKeywordSearchFromModal = (keyword: string) => {
     setIsAnalysisModalOpen(false);
-    setInputValue(keyword);
+    // setInputValue(keyword); // This will be set by the URL change effect
     router.push(`/auctions?q=${encodeURIComponent(keyword)}`);
   };
 
@@ -551,16 +519,16 @@ function AuctionsPageContent() {
     setAllItems(prevItems => prevItems.filter(item => item.id !== endedItemId));
 
     const currentCacheKeyForEnd = (!currentQueryFromUrl) ? CURATED_AUCTIONS_CACHE_KEY : SEARCHED_AUCTIONS_CACHE_KEY_PREFIX + currentQueryFromUrl;
-    
+
     try {
         const cachedDataString = sessionStorage.getItem(currentCacheKeyForEnd);
         if (cachedDataString) {
             const cachedData = JSON.parse(cachedDataString);
             if (cachedData && cachedData.items && Array.isArray(cachedData.items)) {
                 const updatedCachedItems = cachedData.items.filter((i: BayBotItem) => i.id !== endedItemId && (i.endTime ? new Date(i.endTime).getTime() > Date.now() : false));
-                if (updatedCachedItems.length > 0 || cachedData.items.length !== updatedCachedItems.length ) { 
+                if (updatedCachedItems.length > 0 || cachedData.items.length !== updatedCachedItems.length ) {
                     sessionStorage.setItem(currentCacheKeyForEnd, JSON.stringify({ items: updatedCachedItems, timestamp: Date.now() }));
-                } else if (updatedCachedItems.length === 0 && cachedData.items.length > 0) { 
+                } else if (updatedCachedItems.length === 0 && cachedData.items.length > 0) {
                      sessionStorage.removeItem(currentCacheKeyForEnd);
                 }
             }
@@ -569,12 +537,13 @@ function AuctionsPageContent() {
         console.warn(`[AuctionsPage handleAuctionEnd] Error updating sessionStorage for ended auction ${endedItemId} in key ${currentCacheKeyForEnd}:`, e);
     }
 
-    const endedItemTitle = allItems.find(item => item.id === endedItemId)?.title || "An auction";
+    const endedItem = allItems.find(item => item.id === endedItemId);
+    const endedItemTitle = endedItem?.title || "An auction";
     toast({
         title: "Auction Ended",
         description: `"${endedItemTitle.substring(0,30)}..." has ended and been removed.`
     });
-  }, [currentQueryFromUrl, toast, allItems]);
+  }, [currentQueryFromUrl, toast, allItems]); // Added allItems
 
 
   useEffect(() => {
@@ -672,4 +641,3 @@ export default function AuctionsPage() {
     </Suspense>
   );
 }
-
