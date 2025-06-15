@@ -387,16 +387,17 @@ export function useItemPageLogic(itemType: ItemType) {
     }
 
     if (overallToastMessage && !error) {
-      toast(overallToastMessage);
+      setTimeout(() => toast(overallToastMessage), 0);
     } else if (error && !isAuthError) {
-      toast({ title: `Error Loading ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: error || "An unexpected error occurred.", variant: "destructive" });
+      setTimeout(() => toast({ title: `Error Loading ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: error || "An unexpected error occurred.", variant: "destructive" }), 0);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-      currentQueryFromUrl, itemType, toast, isAuthError,
+      currentQueryFromUrl, itemType, // Removed toast from here
+      isAuthError, // Keep isAuthError
       CURATED_CACHE_KEY, SEARCHED_CACHE_KEY_PREFIX, OTHER_ITEM_TYPE_CURATED_CACHE_KEY, otherItemType,
       aiRankOrQualifyItems, aiBackgroundCacheQuery, aiOtherTypeBackgroundCacheQuery,
-      backgroundCacheAttempted, // Added to deps
+      backgroundCacheAttempted,
     ]);
 
   useEffect(() => {
@@ -408,7 +409,7 @@ export function useItemPageLogic(itemType: ItemType) {
     setLoadedFromCacheTimestamp(null); // For deals page
     loadItems(currentQueryFromUrl);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQueryFromUrl, itemType]); // itemType ensures re-fetch if hook is somehow reused with different type, though not typical for page components
+  }, [currentQueryFromUrl, itemType]); // loadItems removed as it's stable if toast is stable
 
   // Top-up logic for global curated view
   useEffect(() => {
@@ -470,25 +471,22 @@ export function useItemPageLogic(itemType: ItemType) {
                     if (itemType === 'deal') {
                         finalToppedUpItemsList = await rankDealsAI(finalToppedUpItemsList, "general curated deals top-up/soft refresh");
                     }
-                    // For auctions, qualification happens during initial fetch if not from cache, top-up adds raw active auctions
-                    // If AI re-qualification of the whole topped-up list is desired for auctions, it would be added here.
-                    // For now, keeping auctions top-up simpler as per original logic.
 
-                    setAllItems(finalToppedUpItemsList); // Update state again with AI processed items for deals
+                    setAllItems(finalToppedUpItemsList); 
                     sessionStorage.setItem(CURATED_CACHE_KEY, JSON.stringify({ items: finalToppedUpItemsList, timestamp: Date.now() }));
-                    toast({ title: `Curated ${itemType === 'deal' ? 'Deals' : 'Auctions'} Updated`, description: `Now displaying ${finalToppedUpItemsList.length} ${itemType === 'auction' ? 'active ' : ''}${itemType === 'deal' ? 'deals' : 'auctions'}.` });
+                    setTimeout(() => toast({ title: `Curated ${itemType === 'deal' ? 'Deals' : 'Auctions'} Updated`, description: `Now displaying ${finalToppedUpItemsList.length} ${itemType === 'auction' ? 'active ' : ''}${itemType === 'deal' ? 'deals' : 'auctions'}.` }), 0);
                 })();
-                return finalToppedUpItemsList; // Return initially combined list for immediate display, then update with AI
+                return finalToppedUpItemsList;
               });
           } else {
               if(itemType === 'deal' && cacheIsStaleIshForSoftRefresh && activeAllItems.length >= MIN_DESIRED_CURATED_ITEMS) {
-                 toast({title: `${itemType === 'deal' ? 'Deals' : 'Auctions'} Refreshed`, description: `Checked for new ${itemType}, list is up to date.`})
+                 setTimeout(() => toast({title: `${itemType === 'deal' ? 'Deals' : 'Auctions'} Refreshed`, description: `Checked for new ${itemType}, list is up to date.`}), 0);
               } else {
-                 toast({title: `${itemType === 'deal' ? 'Deals' : 'Auctions'} Top-up`, description: `No new ${itemType} found in this attempt.`})
+                 setTimeout(() => toast({title: `${itemType === 'deal' ? 'Deals' : 'Auctions'} Top-up`, description: `No new ${itemType} found in this attempt.`}), 0);
               }
           }
         } catch (e: any) {
-          toast({ title: `Error Updating ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: e.message || `Failed to fetch additional ${itemType}.`, variant: "destructive" });
+          setTimeout(() => toast({ title: `Error Updating ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: e.message || `Failed to fetch additional ${itemType}.`, variant: "destructive" }), 0);
         } finally {
           setIsLoading(false);
           if(itemType === 'deal') setIsRanking(false);
@@ -496,13 +494,13 @@ export function useItemPageLogic(itemType: ItemType) {
       })();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, toast, loadedFromCacheTimestamp, itemType, CURATED_CACHE_KEY]);
+  }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, loadedFromCacheTimestamp, itemType, CURATED_CACHE_KEY]); // toast removed
 
   // Fallback Background cache for OTHER item type (if current type loaded from cache)
   useEffect(() => {
     const isGlobalCuratedView = !currentQueryFromUrl;
     if (isGlobalCuratedView && initialLoadComplete && !backgroundCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
-        setBackgroundCacheAttempted(true); // This flag is for the "other" type
+        setBackgroundCacheAttempted(true);
         (async () => {
              try {
                 const cachedOtherType = sessionStorage.getItem(OTHER_ITEM_TYPE_CURATED_CACHE_KEY);
@@ -527,7 +525,7 @@ export function useItemPageLogic(itemType: ItemType) {
                 const consolidatedItems = successfulFetches.flat();
                 const uniqueItemsMap = new Map(consolidatedItems.map(i => [i.id, i]));
                 let uniqueItems = Array.from(uniqueItemsMap.values());
-                if (otherItemType === 'auction') { // Ensure auctions are active
+                if (otherItemType === 'auction') { 
                     uniqueItems = uniqueItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
                 }
 
@@ -547,7 +545,7 @@ export function useItemPageLogic(itemType: ItemType) {
   useEffect(() => {
     const query = currentQueryFromUrl;
     if (query && initialLoadComplete && !proactiveSearchCacheAttempted && !isLoading && !isRanking && !error && !isAuthError) {
-      setProactiveSearchCacheAttempted(true); // This flag is for the "other" type's search cache
+      setProactiveSearchCacheAttempted(true);
       (async () => {
         try {
           const searchedOtherTypeCacheKey = OTHER_ITEM_TYPE_SEARCHED_CACHE_KEY_PREFIX + query;
@@ -584,18 +582,18 @@ export function useItemPageLogic(itemType: ItemType) {
   }, [router, pagePath]);
 
   const handleLogoClick = useCallback(async () => {
-    setInputValue(''); // Reset input field on logo click
-    sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY); // Clear both curated caches
+    setInputValue(''); 
+    sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY); 
     sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
-    if (currentQueryFromUrl === '' && pagePath === (itemType === 'deal' ? '/' : '/auctions')) { // If already on the correct curated homepage
+    if (currentQueryFromUrl === '' && pagePath === (itemType === 'deal' ? '/' : '/auctions')) { 
         setInitialLoadComplete(false);
         setTopUpAttempted(false);
         setBackgroundCacheAttempted(false);
         setProactiveSearchCacheAttempted(false);
         setLoadedFromCacheTimestamp(null);
-        loadItems(''); // Force reload
+        loadItems(''); 
     } else {
-        router.push(itemType === 'deal' ? '/' : '/auctions'); // Navigate to respective home
+        router.push(itemType === 'deal' ? '/' : '/auctions'); 
     }
   }, [router, currentQueryFromUrl, itemType, pagePath, loadItems]);
 
@@ -636,13 +634,13 @@ export function useItemPageLogic(itemType: ItemType) {
     } catch (e) {
         console.warn(`[useItemPageLogic handleAuctionEnd] Error updating sessionStorage for ${endedItemId} in key ${currentCacheKeyForEnd}:`, e);
     }
-    const endedItem = allItems.find(item => item.id === endedItemId); // Use current allItems for toast
-    toast({
+    const endedItem = allItems.find(item => item.id === endedItemId);
+    setTimeout(() => toast({
         title: "Auction Ended",
         description: `"${(endedItem?.title || "An auction").substring(0,30)}..." has ended and been removed.`
-    });
+    }), 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [itemType, currentQueryFromUrl, toast, allItems]); // allItems added to ensure toast has latest title
+  }, [itemType, currentQueryFromUrl, allItems, SEARCHED_AUCTIONS_CACHE_KEY_PREFIX, CURATED_AUCTIONS_CACHE_KEY]); // toast removed from deps
 
   useEffect(() => {
     let activeItems = allItems;
@@ -669,8 +667,8 @@ export function useItemPageLogic(itemType: ItemType) {
     inputValue,
     setInputValue,
     displayedItems,
-    allItems, // Needed for "Load More" button logic
-    visibleItemCount, // Though derived from displayedItems.length usually
+    allItems, 
+    visibleItemCount, 
     isLoading,
     isRanking,
     error,
@@ -687,7 +685,7 @@ export function useItemPageLogic(itemType: ItemType) {
     noItemsTitle,
     noItemsDescription,
     activeItemsForNoMessageCount: activeItemsForNoMessage.length,
-    ITEMS_PER_PAGE, // Export for skeleton
+    ITEMS_PER_PAGE, 
   };
 }
 
