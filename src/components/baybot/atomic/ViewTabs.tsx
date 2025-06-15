@@ -2,7 +2,7 @@
 'use client';
 
 import type React from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation'; // Added useSearchParams
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TrendingUp, Gavel } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,16 +13,26 @@ interface ViewTabsProps {
 
 export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
   const router = useRouter();
+  const searchParams = useSearchParams(); // Get current search params
 
   const handleValueChange = (value: string) => {
-    router.push(value);
+    const currentQuery = searchParams.toString();
+    let newPath = value;
+    if (currentQuery) {
+      newPath = `${value}?${currentQuery}`;
+    }
+    router.push(newPath);
   };
 
   // Determine the value for Tabs based on activePath for correct highlighting
   let tabValue = "/"; // Default to homepage (Curated Deals)
-  if (activePath === "/auctions") {
+  // activePath from usePathname() does not include query params.
+  // We need to compare only the pathname part.
+  const currentPathname = activePath.split('?')[0];
+
+  if (currentPathname === "/auctions") {
     tabValue = "/auctions";
-  } else if (activePath === "/") {
+  } else if (currentPathname === "/") {
      tabValue = "/"; // Explicitly for Curated Deals at root
   }
 
@@ -57,3 +67,4 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
     </Tabs>
   );
 };
+
