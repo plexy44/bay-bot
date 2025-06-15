@@ -47,7 +47,7 @@ body {
   }
 
   .dark {
-    /* BayBot Dark Theme - Matrix Inspired */
+    /* DealScope Dark Theme - Matrix Inspired */
     --background: 220 15% 5%;      /* Very dark, slightly desaturated blue/grey */
     --foreground: 120 100% 50%;    /* Matrix Green for text */
 
@@ -110,17 +110,17 @@ body {
   @apply bg-popover/70 backdrop-blur-lg border border-border/40 shadow-xl shadow-primary/10 rounded-lg;
 }
 
-/* BayBot Tabs Customization for Nav Bar */
+/* DealScope Tabs Customization for Nav Bar */
 
 /* Light Mode Styles for TabsList */
-.baybot-tabs-list {
+.dealscope-tabs-list {
   border: 1px solid hsla(var(--border), 0.4) !important; /* from border-border/40 */
   background-color: hsla(var(--muted), 0.3) !important; /* from bg-muted/30 */
   border-radius: 0.375rem !important; /* from rounded-md */
 }
 
 /* Light Mode INACTIVE STATE for Triggers: White button, black text/icons */
-.baybot-tabs-trigger {
+.dealscope-tabs-trigger {
   background-color: hsl(0 0% 100%) !important;
   color: hsl(0 0% 13.7%) !important;
   border: none !important; /* No individual border for triggers */
@@ -130,7 +130,7 @@ body {
 }
 
 /* Light Mode ACTIVE STATE for Triggers: Black button, white text/icons */
-.baybot-tabs-trigger[data-state=active] {
+.dealscope-tabs-trigger[data-state=active] {
   background-color: hsl(0 0% 13.7%) !important;
   color: hsl(0 0% 100%) !important;
   border: none !important; /* No individual border for triggers */
@@ -138,23 +138,23 @@ body {
 }
 
 /* Light Mode Hover/Focus for Triggers (no explicit change) */
-.baybot-tabs-trigger:hover,
-.baybot-tabs-trigger:focus-visible {
+.dealscope-tabs-trigger:hover,
+.dealscope-tabs-trigger:focus-visible {
   /* No background or color change. The base light styles apply. */
 }
-.baybot-tabs-trigger[data-state=active]:hover,
-.baybot-tabs-trigger[data-state=active]:focus-visible {
+.dealscope-tabs-trigger[data-state=active]:hover,
+.dealscope-tabs-trigger[data-state=active]:focus-visible {
   /* No background or color change. The active light styles apply. */
 }
 
-/* Dark Mode BayBot Tabs Customization */
-.dark .baybot-tabs-list {
+/* Dark Mode DealScope Tabs Customization */
+.dark .dealscope-tabs-list {
   background-color: hsl(var(--card)) !important; /* Dark grey bg, e.g. hsl(220 15% 8%) */
   border: 1px solid hsl(var(--primary)) !important; /* Green border, e.g. hsl(120 70% 35%) */
   border-radius: 0.375rem !important;
 }
 
-.dark .baybot-tabs-trigger {
+.dark .dealscope-tabs-trigger {
   background-color: hsl(var(--card)) !important; /* Dark bg, matches TabsList, e.g. hsl(220 15% 8%) */
   color: hsl(var(--foreground)) !important; /* Matrix Green text/icons, e.g. hsl(120 100% 50%) */
   border: none !important;
@@ -163,23 +163,23 @@ body {
   transition: background-color 0.2s ease-out, color 0.2s ease-out;
 }
 
-.dark .baybot-tabs-trigger[data-state=active] {
+.dark .dealscope-tabs-trigger[data-state=active] {
   background-color: hsl(var(--accent)) !important; /* Bright green accent bg, e.g. hsl(120 80% 45%) */
   color: hsl(var(--background)) !important; /* Very dark text/icons, e.g. hsl(220 15% 5%) */
   border: none !important;
   box-shadow: none !important;
 }
 
-.dark .baybot-tabs-trigger:hover,
-.dark .baybot-tabs-trigger:focus-visible {
+.dark .dealscope-tabs-trigger:hover,
+.dark .dealscope-tabs-trigger:focus-visible {
   /* No specific background or color change, base dark styles apply. */
 }
 
-.dark .baybot-tabs-trigger[data-state=active]:hover,
-.dark .baybot-tabs-trigger[data-state=active]:focus-visible {
+.dark .dealscope-tabs-trigger[data-state=active]:hover,
+.dark .dealscope-tabs-trigger[data-state=active]:focus-visible {
   /* No specific background or color change, active dark styles apply. */
 }
-/* End BayBot Tabs Customization */
+/* End DealScope Tabs Customization */
 
 
 @keyframes pulse-glass {

@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader2, AlertTriangle, Zap } from "lucide-react";
-import type { BayBotItem, AnalysisResult } from '@/types';
+import type { DealScopeItem, AnalysisResult } from '@/types';
 import { analyzeDeal, type AnalyzeDealInput } from '@/ai/flows/analyze-deal';
 
 import { DealPriceBreakdown } from './atomic/DealPriceBreakdown';
@@ -14,7 +14,7 @@ import { AIScoresDisplay } from './atomic/AIScoresDisplay';
 import { KeywordPillsDisplay } from './atomic/KeywordPillsDisplay';
 
 interface AnalysisModalProps {
-  item: BayBotItem | null;
+  item: DealScopeItem | null;
   isOpen: boolean;
   onClose: () => void;
   onKeywordSearch: (keyword: string) => void;
@@ -33,8 +33,8 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
       const performAnalysis = async () => {
         setIsLoading(true);
         setError(null);
-        setAnalysis(null); // Clear previous analysis
-        setAnimatedRiskScore(0); // Reset animated scores
+        setAnalysis(null);
+        setAnimatedRiskScore(0);
         setAnimatedRarityScore(0);
 
         try {
@@ -42,7 +42,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
             title: item.title,
             description: item.description || "N/A",
             price: item.price,
-            originalPrice: item.originalPrice || item.price, // Ensure originalPrice has a fallback
+            originalPrice: item.originalPrice || item.price,
             discountPercentage: item.discountPercentage || 0,
             imageUrl: item.imageUrl,
           };
@@ -57,12 +57,11 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
       };
       performAnalysis();
     } else if (isOpen && item && item.type === 'auction') {
-      // Handle auctions - currently no analysis, so set states accordingly
       setAnalysis(null);
       setError("AI analysis is currently available for deals only.");
       setIsLoading(false);
     }
-  }, [isOpen, item]); // Dependencies: isOpen and item
+  }, [isOpen, item]);
 
   useEffect(() => {
     if (analysis) {
@@ -73,7 +72,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
         clearTimeout(rarityTimer);
       };
     }
-  }, [analysis]); // Dependency: analysis
+  }, [analysis]);
 
   if (!item) return null;
 
@@ -95,7 +94,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
               <p className="text-muted-foreground">Analyzing deal, please wait...</p>
             </div>
           )}
-          {error && ( // Display error for both deals and auctions if applicable
+          {error && (
             <div className="flex flex-col items-center justify-center h-40 text-destructive">
               <AlertTriangle className="h-12 w-12 mb-4" />
               <p>{error}</p>
@@ -115,7 +114,6 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
             </>
           )}
 
-          {/* Message for when deal analysis is loading but price breakdown can show */}
           {isLoading && item.type === 'deal' && (item.originalPrice || (item.discountPercentage && item.discountPercentage > 0)) && !analysis && (
              <p className="text-center text-sm text-muted-foreground mt-2">Loading AI insights...</p>
            )}

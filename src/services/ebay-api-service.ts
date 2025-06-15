@@ -1,7 +1,7 @@
 
 'use server';
 
-import type { BayBotItem } from '@/types';
+import type { DealScopeItem } from '@/types';
 import {
   curatedHomepageSearchTerms,
   STANDARD_CACHE_TTL_MS,
@@ -21,7 +21,7 @@ interface EbayToken {
 let ebayToken: EbayToken | null = null;
 
 interface CacheEntry {
-  data: BayBotItem[];
+  data: DealScopeItem[];
   timestamp: number;
 }
 const fetchItemsCache = new Map<string, CacheEntry>();
@@ -67,7 +67,7 @@ async function getEbayAuthToken(): Promise<string> {
         throw new Error('Failed to retrieve access_token from eBay OAuth response.');
     }
     ebayToken = { ...tokenData, fetched_at: Date.now() };
-    console.log('[eBay Service Auth] Successfully fetched new eBay OAuth token.');
+    // console.log('[eBay Service Auth] Successfully fetched new eBay OAuth token.');
     return ebayToken!.access_token;
   } catch (error) {
     console.error('[eBay Service Auth] Detailed error during OAuth token fetch:', error);
@@ -150,7 +150,7 @@ function transformBrowseItem(
   itemTypeFromFilter: 'deal' | 'auction',
   keywordsUsedForApi: string,
   isGlobalCuratedRequestForTransform: boolean
-): BayBotItem | null {
+): DealScopeItem | null {
   try {
     const id = browseItem.itemId;
     const title = browseItem.title.trim();
@@ -167,7 +167,6 @@ function transformBrowseItem(
             }
         }
         if (!isExclusionInQuery) {
-          // console.log(`[eBay Transform] Excluding item "${title}" for keyword "${exclusionKeyword}". Query: "${keywordsUsedForApi}".`);
           return null;
         }
       }
@@ -178,7 +177,6 @@ function transformBrowseItem(
       : 0;
 
     if (sellerReputation < MIN_SELLER_REPUTATION_THRESHOLD) {
-        // console.log(`[eBay Transform] Excluding item "${title}" for low seller reputation: ${sellerReputation}%.`);
         return null;
     }
 
@@ -189,13 +187,11 @@ function transformBrowseItem(
 
     if (itemTypeFromFilter === 'deal') {
       if (!hasFixedPrice) {
-        // console.log(`[eBay Transform] Discarding "${title}" for 'deal' request: No FIXED_PRICE.`);
         return null;
       }
       determinedItemType = 'deal';
     } else if (itemTypeFromFilter === 'auction') {
       if (!hasAuction) {
-        // console.log(`[eBay Transform] Discarding "${title}" for 'auction' request: No AUCTION.`);
         return null;
       }
       determinedItemType = 'auction';
@@ -224,7 +220,6 @@ function transformBrowseItem(
 
     if (determinedItemType === 'deal' && isGlobalCuratedRequestForTransform && discountPercentageValue < MIN_DEAL_DISCOUNT_THRESHOLD) {
        if (!originalPriceValue || originalPriceValue <= currentPriceValue) {
-        // console.log(`[eBay Transform] Excluding GLOBAL CURATED deal "${title}" for discount (${discountPercentageValue}%) < threshold or no valid original price.`);
         return null;
        }
     }
@@ -233,7 +228,7 @@ function transformBrowseItem(
     const description = browseItem.shortDescription || title;
     const itemLink = browseItem.itemAffiliateWebUrl || browseItem.itemWebUrl;
 
-    const bayBotItem: BayBotItem = {
+    const dealScopeItem: DealScopeItem = {
       id,
       type: determinedItemType,
       title,
@@ -250,13 +245,13 @@ function transformBrowseItem(
       sellerFeedbackScore: browseItem.seller?.feedbackScore || 0,
     };
 
-    if (bayBotItem.type === 'auction') {
-      bayBotItem.endTime = browseItem.itemEndDate;
-      bayBotItem.timeLeft = formatTimeLeft(bayBotItem.endTime);
-      bayBotItem.bidCount = browseItem.bidCount || 0;
+    if (dealScopeItem.type === 'auction') {
+      dealScopeItem.endTime = browseItem.itemEndDate;
+      dealScopeItem.timeLeft = formatTimeLeft(dealScopeItem.endTime);
+      dealScopeItem.bidCount = browseItem.bidCount || 0;
     }
 
-    return bayBotItem;
+    return dealScopeItem;
   } catch (e) {
     console.error("[eBay Transform] Error transforming eBay Browse API item:", e, "Raw Item:", JSON.stringify(browseItem, null, 2));
     return null;
@@ -277,7 +272,7 @@ export const fetchItems = async (
   type: 'deal' | 'auction',
   query: string,
   isGlobalCuratedRequest: boolean = false
-): Promise<BayBotItem[]> => {
+): Promise<DealScopeItem[]> => {
   const keywordsForApi = query;
   const cacheKeySuffix = keywordsForApi;
   const cacheKey = `browse:${type}:${cacheKeySuffix}`;
@@ -286,17 +281,14 @@ export const fetchItems = async (
   if (fetchItemsCache.has(cacheKey)) {
     const cachedEntry = fetchItemsCache.get(cacheKey)!;
     if (Date.now() - cachedEntry.timestamp < cacheTTL) {
-      // console.log(`[Cache HIT] Using cached items for key: ${cacheKey}`);
       return cachedEntry.data;
     } else {
       fetchItemsCache.delete(cacheKey);
-      // console.log(`[Cache EXPIRED] Deleted cache for key: ${cacheKey}`);
     }
   }
-  // console.log(`[Cache MISS] Fetching. Type: "${type}", API Query: "${keywordsForApi}", Global: ${isGlobalCuratedRequest}`);
 
   if (typeof keywordsForApi !== 'string' || keywordsForApi.trim() === '') {
-    console.warn(`[BayBot Fetch] 'keywordsForApi' is empty or not a string. Query: "${query}", Type: "${type}". Returning empty.`);
+    console.warn(`[DealScope Fetch] 'keywordsForApi' is empty or not a string. Query: "${query}", Type: "${type}". Returning empty.`);
     return [];
   }
 
@@ -306,7 +298,7 @@ export const fetchItems = async (
 
   let limit = '50';
   if (type === 'deal' && !isGlobalCuratedRequest) { limit = '100'; }
-  // Auction limits remain 50 for user searches and curated, managed by MAX_CURATED_FETCH_ATTEMPTS for curated.
+
 
   browseApiUrl.searchParams.append('limit', limit);
   browseApiUrl.searchParams.append('offset', '0');
@@ -317,16 +309,15 @@ export const fetchItems = async (
   if (type === 'auction') {
     filterOptions.push('buyingOptions:{AUCTION}');
     sortOption = 'endingSoonest';
-  } else { // type === 'deal'
+  } else {
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
     filterOptions.push('priceCurrency:GBP');
-    filterOptions.push('conditionIds:{1000|2000|2500|3000}'); // New, Like New, Manufacturer Refurb, Seller Refurb
+    filterOptions.push('conditionIds:{1000|2000|2500|3000}');
     if (isGlobalCuratedRequest) {
-      filterOptions.push('price:[20..]'); // Min price £20 for curated deals
-      // sortOption = null; // Let AI rank curated deals
-    } else { // User-initiated search for deals
-      filterOptions.push('price:[1..]'); // Min price £1 for searched deals
-      // sortOption = null; // eBay default relevance for user searches
+      filterOptions.push('price:[20..]');
+    } else {
+      filterOptions.push('price:[1..]');
+      sortOption = null;
     }
   }
 
@@ -336,7 +327,6 @@ export const fetchItems = async (
   const finalFilterString = filterOptions.join(',');
   browseApiUrl.searchParams.append('filter', finalFilterString);
 
-  // console.log(`[BayBot Fetch] API Call: Query: "${keywordsForApi}", Type: "${type}", Limit: ${limit}, Sort: "${sortOption || 'eBay Default'}", Filter: "${finalFilterString}"`);
 
   try {
     const response = await fetch(browseApiUrl.toString(), {
@@ -360,7 +350,6 @@ export const fetchItems = async (
     if (!response.ok) {
       console.warn(`[eBay Service] API request FAILED (${response.status}). Query: "${keywordsForApi}", Type: "${type}". URL: ${browseApiUrl.toString()}. Response: ${JSON.stringify(data, null, 2)}`);
       if (data && data.itemSummaries === undefined && data.warnings && data.warnings.length > 0) {
-         // console.log(`[eBay Service] API warnings and no items, returning empty for query "${keywordsForApi}".`);
          fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
          return [];
       }
@@ -368,12 +357,10 @@ export const fetchItems = async (
     }
 
     const rawItemCount = data.itemSummaries ? data.itemSummaries.length : 0;
-    // console.log(`[eBay Service] Received ${rawItemCount} raw items from eBay. Query: "${keywordsForApi}", Type: "${type}".`);
 
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
-      // console.warn(`[eBay Service] No items found (itemSummaries null/empty). Query: "${keywordsForApi}", Type: "${type}".`);
       if (data.warnings && data.warnings.length > 0) {
-          // console.warn(`[eBay Service] eBay API Warnings:`, JSON.stringify(data.warnings, null, 2));
+          console.warn(`[eBay Service] eBay API Warnings for query "${keywordsForApi}":`, JSON.stringify(data.warnings, null, 2));
       }
       fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
@@ -382,18 +369,13 @@ export const fetchItems = async (
     const browseItems: BrowseApiItemSummary[] = data.itemSummaries || [];
     let transformedItems = browseItems
       .map(browseItem => transformBrowseItem(browseItem, type, keywordsForApi, isGlobalCuratedRequest))
-      .filter((item): item is BayBotItem => item !== null);
+      .filter((item): item is DealScopeItem => item !== null);
 
     console.log(`[SEARCH TERM PERFORMANCE DATA] Term: "${keywordsForApi}" | Type: ${type} | Raw eBay Items: ${rawItemCount} | Transformed Items (Pre-AI): ${transformedItems.length}`);
 
-    // if (type === 'deal' && isGlobalCuratedRequest) { // Sorting for curated deals is handled by AI ranking
-    //     transformedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
-    // }
 
-    const finalItems = transformedItems.filter(item => item.type === type); // Ensure final type match
-    // console.log(`[eBay Service] Returning ${finalItems.length} items post-processing. Query: "${keywordsForApi}".`);
+    const finalItems = transformedItems.filter(item => item.type === type);
     fetchItemsCache.set(cacheKey, { data: finalItems, timestamp: Date.now() });
-    // console.log(`[Cache SET] Cached ${finalItems.length} items for key: ${cacheKey}`);
     return finalItems;
 
   } catch (error) {

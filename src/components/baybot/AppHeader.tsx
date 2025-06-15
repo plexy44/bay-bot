@@ -12,7 +12,7 @@ interface AppHeaderProps {
   onSearchInputChange: (query: string) => void;
   onSearchSubmit: (query: string) => void;
   onLogoClick: () => void;
-  isLoading: boolean; // Added isLoading prop
+  isLoading: boolean;
 }
 
 export const AppHeader: React.FC<AppHeaderProps> = ({
@@ -20,20 +20,15 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onSearchInputChange,
   onSearchSubmit,
   onLogoClick,
-  isLoading, // Destructure isLoading
+  isLoading,
 }) => {
-  const pathname = usePathname(); // Used for ViewTabs activePath
+  const pathname = usePathname();
 
-  // Internal handler for the form submission WITHIN AppHeader
-  // It calls the onSearchSubmit prop passed from the parent page
   const handleSearchFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSearchSubmit(searchInputValue);
   };
 
-  // Internal handler for the logo click.
-  // It calls the onLogoClick prop passed from the parent page.
-  // The parent page's onLogoClick handler contains the logic for navigation and clearing search.
   const handleLogoClickInternal = () => {
     onLogoClick();
   };
@@ -46,11 +41,11 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             onClick={handleLogoClickInternal}
             className={cn(
               "text-xl font-headline font-bold text-foreground hover:text-primary transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm",
-              isLoading && "logo-rainbow-text-glow-loading" // Conditionally apply animation class
+              isLoading && "logo-rainbow-text-glow-loading"
             )}
-            aria-label="BayBot - View Curated Deals Homepage"
+            aria-label="DealScope - View Curated Deals Homepage"
           >
-            BayBot
+            DealScope
           </button>
           <ViewTabs activePath={pathname} />
         </div>

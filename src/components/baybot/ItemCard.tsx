@@ -5,13 +5,13 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Clock, Info, ExternalLink, ShieldCheck, TrendingUp, Gem } from "lucide-react";
-import type { BayBotItem } from '@/types';
+import type { DealScopeItem } from '@/types';
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 
 interface ItemCardProps {
-  item: BayBotItem;
-  onAnalyze: (item: BayBotItem) => void;
+  item: DealScopeItem;
+  onAnalyze: (item: DealScopeItem) => void;
   onAuctionEnd?: (itemId: string) => void;
 }
 
@@ -33,7 +33,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
   }, [item.rarityScore, item.type]);
 
   const updateAuctionTimer = useCallback(() => {
-    if (item.type !== 'auction' || !item.endTime) return;
+    if (item.type !== 'auction' || !item.endTime) return false;
 
     const endTimeMs = new Date(item.endTime).getTime();
     const nowMs = Date.now();
@@ -41,7 +41,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
 
     if (diffMs <= 0) {
       onAuctionEnd?.(item.id);
-      return true; // Auction ended
+      return true;
     }
 
     const totalSeconds = Math.floor(diffMs / 1000);
@@ -58,12 +58,12 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
 
     setDisplayTimeLeft(timeLeftString);
     setIsLastHour(diffMs > 0 && diffMs <= 60 * 60 * 1000);
-    return false; // Auction still active
+    return false;
   }, [item.id, item.endTime, item.type, onAuctionEnd]);
 
   useEffect(() => {
     if (item.type === 'auction' && item.endTime) {
-      if (updateAuctionTimer()) return; // If ended on first check, no interval needed
+      if (updateAuctionTimer()) return;
 
       const intervalId = setInterval(() => {
         if (updateAuctionTimer()) {
@@ -72,7 +72,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
       }, 1000);
       return () => clearInterval(intervalId);
     } else {
-      setDisplayTimeLeft(item.timeLeft); // For non-auctions or auctions without endTime
+      setDisplayTimeLeft(item.timeLeft);
       setIsLastHour(false);
     }
   }, [item.type, item.endTime, item.timeLeft, updateAuctionTimer]);

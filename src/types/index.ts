@@ -1,5 +1,5 @@
 
-export interface BayBotItem {
+export interface DealScopeItem {
   id: string;
   type: 'deal' | 'auction'; // Explicitly 'deal' or 'auction'
   title: string;
@@ -28,4 +28,3 @@ export interface AnalysisResult {
   rarityScore: number;
   keywords: string[];
 }
-

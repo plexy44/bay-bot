@@ -12,7 +12,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import type { BayBotItem } from '@/types'; // Import BayBotItem for mapping
+import type { DealScopeItem } from '@/types';
 
 const DealSchema = z.object({
   id: z.string().describe('The unique identifier of the deal.'),
@@ -26,7 +26,7 @@ const DealSchema = z.object({
   condition: z.string().optional().describe('The condition of the item (e.g., New, Used).'),
 });
 
-export type AIDeal = z.infer<typeof DealSchema>; // Renamed to AIDeal for clarity in this context
+export type AIDeal = z.infer<typeof DealSchema>;
 
 const RankDealsInputSchema = z.object({
   deals: z.array(DealSchema).describe('The list of pre-filtered and server-sorted deals to qualify and rank.'),
@@ -35,23 +35,19 @@ const RankDealsInputSchema = z.object({
 
 export type RankDealsInput = z.infer<typeof RankDealsInputSchema>;
 
-// The output of the FLOW is still an array of full Deal objects (BayBotItem in practice)
 const RankDealsOutputSchema = z.array(DealSchema).describe('The qualified and re-ranked list of deals.');
 export type RankDealsOutput = z.infer<typeof RankDealsOutputSchema>;
 
 
-// This function is what the client-side page will call.
-// It handles the mapping from BayBotItem[] to AIDeal[] and back.
 export async function rankDeals(
-    baybotDeals: BayBotItem[],
+    dealscopeDeals: DealScopeItem[],
     query: string
-): Promise<BayBotItem[]> {
-    if (!baybotDeals || baybotDeals.length === 0) {
-        // console.log('[rankDeals entry] No BayBot deals provided to rank. Returning empty list.');
+): Promise<DealScopeItem[]> {
+    if (!dealscopeDeals || dealscopeDeals.length === 0) {
         return [];
     }
 
-    const aiDealsInput: AIDeal[] = baybotDeals.map(item => ({
+    const aiDealsInput: AIDeal[] = dealscopeDeals.map(item => ({
         id: item.id,
         title: item.title,
         price: item.price,
@@ -68,28 +64,24 @@ export async function rankDeals(
     try {
         const rankedAiDeals: AIDeal[] = await rankDealsFlow(flowInput);
 
-        const baybotDealMap = new Map(baybotDeals.map(deal => [deal.id, deal]));
-        const reorderedBaybotDeals: BayBotItem[] = rankedAiDeals
-            .map(aiDeal => baybotDealMap.get(aiDeal.id))
-            .filter(Boolean) as BayBotItem[];
+        const dealscopeDealMap = new Map(dealscopeDeals.map(deal => [deal.id, deal]));
+        const reorderedDealScopeDeals: DealScopeItem[] = rankedAiDeals
+            .map(aiDeal => dealscopeDealMap.get(aiDeal.id))
+            .filter(Boolean) as DealScopeItem[];
 
-        // Log if the AI returned a different number of items than it was given (and it's not an empty list which is valid)
-        if (rankedAiDeals.length !== baybotDeals.length && rankedAiDeals.length > 0) {
-            //  console.log(`[rankDeals entry] AI flow returned ${rankedAiDeals.length} deals out of ${baybotDeals.length} input deals for query "${query}".`);
-        } else if (rankedAiDeals.length === 0 && baybotDeals.length > 0) {
-            console.warn(`[rankDeals entry] AI flow returned 0 qualified deals for query "${query}" from ${baybotDeals.length} inputs.`);
+        if (rankedAiDeals.length === 0 && dealscopeDeals.length > 0) {
+            console.warn(`[rankDeals entry] AI flow returned 0 qualified deals for query "${query}" from ${dealscopeDeals.length} inputs.`);
         }
 
-        return reorderedBaybotDeals;
+        return reorderedDealScopeDeals;
 
     } catch (e) {
-        console.error(`[rankDeals entry] Error calling rankDealsFlow for query "${query}". Returning original BayBot deal list as fallback. Error:`, e);
-        return baybotDeals; // Fallback to original full list on error
+        console.error(`[rankDeals entry] Error calling rankDealsFlow for query "${query}". Returning original DealScope deal list as fallback. Error:`, e);
+        return dealscopeDeals;
     }
 }
 
 
-// Schema for the AI Prompt's output - just an array of IDs
 const RankedDealIdsOutputSchema = z.array(z.string().describe('The ID of the deal in qualified and ranked order.'));
 
 const rankDealsPrompt = ai.definePrompt({
@@ -148,7 +140,7 @@ Example response format if no deals qualified: []`,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string) => value || defaultValue,
     query_is_specific: (query: string) => {
-      const genericTerms = ["general curated deals", "curated deals", "deals", "general deals", "top deals", "best deals", "general curated deals background cache from auctions", "general curated deals top-up/soft refresh"]; // Add more generic phrases if needed
+      const genericTerms = ["general curated deals", "curated deals", "deals", "general deals", "top deals", "best deals", "general curated deals background cache from auctions", "general curated deals top-up/soft refresh"];
       return query && !genericTerms.some(term => query.toLowerCase().includes(term.toLowerCase()));
     }
   }
@@ -158,27 +150,26 @@ const rankDealsFlow = ai.defineFlow(
   {
     name: 'rankDealsFlow',
     inputSchema: RankDealsInputSchema,
-    outputSchema: RankDealsOutputSchema, // Flow outputs full AIDeal objects after reordering
+    outputSchema: RankDealsOutputSchema,
   },
   async (input: RankDealsInput): Promise<AIDeal[]> => {
     if (!input.deals || input.deals.length === 0) {
-      // console.log('[rankDealsFlow] No deals provided to rank. Returning empty list.');
       return [];
     }
 
     try {
       const {output: rankedIds} = await rankDealsPrompt(input);
 
-      if (!rankedIds) { // Prompt failed or returned null/undefined
+      if (!rankedIds) {
           console.warn(
           `[rankDealsFlow] AI ranking (IDs) prompt returned null/undefined. Query: "${input.query}". Deals count: ${input.deals.length}. Falling back to original deal list order.`
           );
-          return input.deals; // Fallback to full original list
+          return input.deals;
       }
 
       if (rankedIds.length === 0) {
-        // console.log(`[rankDealsFlow] AI ranking (IDs) prompt returned an empty list (0 qualified deals) for query: "${input.query}".`);
-        return []; // AI explicitly said no deals are qualified
+        // This is a valid AI response, indicating no deals were qualified.
+        return [];
       }
 
       const outputIdsSet = new Set(rankedIds);
@@ -198,12 +189,11 @@ const rankDealsFlow = ai.defineFlow(
           console.warn(`[rankDealsFlow] AI returned ${rankedIds.length} IDs, but only ${reorderedDeals.length} mapped to original deals. Query: "${input.query}".`);
       }
 
-      // console.log(`[rankDealsFlow] AI qualified and reordered ${reorderedDeals.length} deals (out of ${input.deals.length} inputs) for query: "${input.query}".`);
       return reorderedDeals;
 
     } catch (e) {
       console.error(`[rankDealsFlow] Failed to rank deals for query "${input.query}", returning original list. Error:`, e);
-      return input.deals; // Fallback to full original list on critical error
+      return input.deals;
     }
   }
 );

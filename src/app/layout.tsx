@@ -17,7 +17,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: 'BayBot - Deals and Auctions',
+  title: 'DealScope - Deals and Auctions',
   description: 'Find the best deals and auctions with AI-powered insights.',
 };
 
