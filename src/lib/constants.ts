@@ -128,7 +128,7 @@ export const MIN_SELLER_REPUTATION_THRESHOLD = 80; // Minimum seller reputation 
 export const MIN_DEAL_DISCOUNT_THRESHOLD = 5; // Minimum discount percentage for a deal to be considered (e.g., 5%)
 
 export const MIN_DESIRED_CURATED_ITEMS = 16;
-export const MAX_CURATED_FETCH_ATTEMPTS = 3; 
+export const MAX_CURATED_FETCH_ATTEMPTS = 3;
 export const MIN_AI_QUALIFIED_ITEMS_THRESHOLD = 6;
 
 export const CURATED_DEALS_CACHE_KEY = 'cachedCuratedDeals';
@@ -142,3 +142,6 @@ export const TARGET_RAW_ITEMS_FACTOR_FOR_AI = 2; // Fetch e.g. 2x MIN_DESIRED_CU
 // For proactive background caching
 export const KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE = 2;
 
+// For caching searched content
+export const SEARCHED_DEALS_CACHE_KEY_PREFIX = 'searchedDealsCache__';
+export const SEARCHED_AUCTIONS_CACHE_KEY_PREFIX = 'searchedAuctionsCache__';
