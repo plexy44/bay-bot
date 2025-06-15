@@ -66,6 +66,8 @@ export default function RootLayout({
         />
         <script dangerouslySetInnerHTML={{ __html: `window._epn = {campaign: 5339112633};` }} />
         <script src="https://epnt.ebay.com/static/epn-smart-tools.js"></script>
+        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7132522800049597"
+     crossOrigin="anonymous"></script>
       </head>
       <body className="font-body antialiased min-h-screen flex flex-col bg-background text-foreground">
         {children}
