@@ -111,7 +111,7 @@ function HomePageContent() {
         sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
       }
 
-      if (finalProcessedItems.length === 0) { // No valid cache, fetch fresh iteratively
+      if (finalProcessedItems.length === 0) {
         console.log(`[HomePage loadItems] Curated deals: No valid cache. Starting iterative fresh fetch.`);
         setIsRanking(true);
         let accumulatedRawEbayItems: BayBotItem[] = [];
@@ -127,11 +127,11 @@ function HomePageContent() {
             ) {
               currentBatchNumber++;
               const keywordsForThisBatch: string[] = [];
-              let uniqueKeywordSafety = 0; // Safety break for finding unique keywords
+              let uniqueKeywordSafety = 0;
               
               while (
                 keywordsForThisBatch.length < KEYWORDS_PER_BATCH_INITIAL_DEALS && 
-                uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 10) && // Try a bit more than total available terms
+                uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 10) && 
                 (attemptedKeywordsInitialLoad.size + keywordsForThisBatch.length < MAX_TOTAL_KEYWORDS_TO_TRY_INITIAL_DEALS)
               ) {
                 const randomKw = await getRandomPopularSearchTerm();
@@ -205,7 +205,7 @@ function HomePageContent() {
             } else { displayMessage = e.message; }
           }
           setError(displayMessage);
-          finalProcessedItems = []; // Ensure empty on error
+          finalProcessedItems = [];
         } finally {
           setIsRanking(false);
         }
@@ -220,7 +220,6 @@ function HomePageContent() {
         }
       }
     } else { 
-      // Standard search logic
       const effectiveQueryForEbay = queryToLoad;
       console.log(`[HomePage loadItems] Standard search. eBay Query: "${effectiveQueryForEbay}", Type: "deal"`);
       try {
@@ -295,7 +294,6 @@ function HomePageContent() {
     console.log(`[HomePage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} total items.`);
   }, [toast, ITEMS_PER_PAGE]);
 
-  // Top-up useEffect for curated deals
   useEffect(() => {
     const isGlobalCuratedView = !currentQueryFromUrl;
     if (isGlobalCuratedView && initialLoadComplete && !topUpAttempted && !isLoading && !isRanking && !error && !isAuthError && allItems.length < MIN_DESIRED_CURATED_ITEMS) {
@@ -307,11 +305,11 @@ function HomePageContent() {
       (async () => {
         try {
           const currentItemIds = new Set(allItems.map(item => item.id));
-          const numAdditionalKeywords = Math.max(1, Math.floor(MAX_CURATED_FETCH_ATTEMPTS / 2) || 1); // Use MAX_CURATED_FETCH_ATTEMPTS for top-up keywords
+          const numAdditionalKeywords = Math.max(1, Math.floor(MAX_CURATED_FETCH_ATTEMPTS / 2) || 1);
           
           const additionalKeywordsToFetch: string[] = [];
           let uniqueKeywordSafety = 0;
-          const attemptedKeywordsForTopUp = new Set<string>(); // Track keywords used in this specific top-up
+          const attemptedKeywordsForTopUp = new Set<string>();
 
           while(additionalKeywordsToFetch.length < numAdditionalKeywords && uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 5)) {
             const randomKw = await getRandomPopularSearchTerm();
@@ -325,6 +323,7 @@ function HomePageContent() {
 
           if (additionalKeywordsToFetch.length === 0) {
               console.warn("[HomePage Top-Up Effect] No valid additional unique keywords for deals top-up. Aborting.");
+              setIsLoading(false); setIsRanking(false); // Ensure loading is false if aborting
               return;
           }
 
@@ -360,7 +359,6 @@ function HomePageContent() {
     }
   }, [allItems, initialLoadComplete, topUpAttempted, isLoading, isRanking, error, isAuthError, currentQueryFromUrl, toast]);
 
-  // Proactive background caching for Auctions
   useEffect(() => {
     const isGlobalCuratedView = !currentQueryFromUrl;
     if (isGlobalCuratedView && initialLoadComplete && !backgroundAuctionCacheAttempted && !isLoading && !isRanking && !error && allItems.length > 0) {
@@ -410,19 +408,16 @@ function HomePageContent() {
                 consolidatedAuctions.forEach(item => { if (!uniqueAuctionsMap.has(item.id)) uniqueAuctionsMap.set(item.id, item); });
                 
                 const finalBackgroundAuctions = Array.from(uniqueAuctionsMap.values())
-                    .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true); // Ensure active
+                    .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true);
 
                 if (finalBackgroundAuctions.length > 0) {
                     sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
                     console.log(`[HomePage Background Cache] Proactively cached ${finalBackgroundAuctions.length} auctions.`);
-                    // Optional: subtle toast, or no toast for silent operation
-                    // toast({ title: "Background Update", description: "Auctions pre-cached." });
                 } else {
                     console.log("[HomePage Background Cache] No auctions found to proactively cache.");
                 }
             } catch (e: any) {
                 console.error("[HomePage Background Cache] Error during proactive auction caching:", e);
-                // Do not show error toast for background task to avoid bothering user
             }
         })();
     }
@@ -455,18 +450,10 @@ function HomePageContent() {
       try {
         console.log('[HomePage handleLogoClick] Starting background curated content fetch (deals & auctions)...');
         
-        const uniqueBackgroundKeywords: string[] = [];
-        let uniqueKeywordSafety = 0;
-        const attemptedKeywordsForLogoClick = new Set<string>();
+        const keywordPromises = Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm());
+        const resolvedKeywords = await Promise.all(keywordPromises);
+        const uniqueBackgroundKeywords = Array.from(new Set(resolvedKeywords.filter(kw => kw && kw.trim() !== '')));
 
-        while(uniqueBackgroundKeywords.length < MAX_CURATED_FETCH_ATTEMPTS && uniqueKeywordSafety < (curatedHomepageSearchTerms.length + 10)) {
-            const randomKw = await getRandomPopularSearchTerm();
-            if(randomKw && randomKw.trim() !== '' && !attemptedKeywordsForLogoClick.has(randomKw)) {
-                uniqueBackgroundKeywords.push(randomKw);
-                attemptedKeywordsForLogoClick.add(randomKw);
-            }
-            uniqueKeywordSafety++;
-        }
 
         if (uniqueBackgroundKeywords.length === 0) {
           console.warn('[HomePage handleLogoClick] Background task: No valid unique keywords for curated content. Aborting.');
