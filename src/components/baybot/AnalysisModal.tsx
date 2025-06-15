@@ -11,13 +11,13 @@ import { analyzeDeal, type AnalyzeDealInput } from '@/ai/flows/analyze-deal';
 
 import { DealPriceBreakdown } from './atomic/DealPriceBreakdown';
 import { AIScoresDisplay } from './atomic/AIScoresDisplay';
-import { KeywordPillsDisplay } from './atomic/KeywordPillsDisplay'; // New import
+import { KeywordPillsDisplay } from './atomic/KeywordPillsDisplay';
 
 interface AnalysisModalProps {
   item: BayBotItem | null;
   isOpen: boolean;
   onClose: () => void;
-  onKeywordSearch: (keyword: string) => void; // New prop
+  onKeywordSearch: (keyword: string) => void;
 }
 
 export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onClose, onKeywordSearch }) => {
@@ -80,11 +80,11 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-[525px] glass-popover">
         <DialogHeader>
-          <DialogTitle className="font-headline text-2xl flex items-center text-foreground">
-            <Zap className="w-6 h-6 mr-2 text-primary" /> AI Analysis: {item.title}
+          <DialogTitle className="font-headline text-xl flex items-center text-foreground"> {/* Changed text-2xl to text-xl */}
+            <Zap className="w-5 h-5 mr-2 text-primary" /> AI Analysis: {item.title}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            {item.type === 'deal' ? "Powered by GenAI to assess risk, rarity, and suggest related searches." : "AI Analysis is for deals only."}
+            {item.type === 'deal' ? "AI-powered insights for your selected item." : "AI Analysis is for deals only."} {/* Updated description */}
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-6">
