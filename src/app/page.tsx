@@ -15,7 +15,6 @@ import { ShoppingBag, AlertTriangle, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
 import { fetchItems, getRandomPopularSearchTerm } from '@/services/ebay-api-service';
 import { rankDeals as rankDealsAI } from '@/ai/flows/rank-deals';
-import { qualifyAuctions as qualifyAuctionsAI } from '@/ai/flows/qualify-auctions';
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
@@ -88,15 +87,24 @@ function HomePageContent() {
       }
 
       console.log(`[HomePage loadItems] Curated deals: No valid cache. Fetching fresh. Target: ${MIN_DESIRED_CURATED_ITEMS} items.`);
-      setIsRanking(true); // Show AI spinner during the consolidated fetch + AI process
+      setIsRanking(true);
 
       try {
-        const uniqueRandomKeywords = Array.from(new Set(Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm())));
-        console.log(`[HomePage loadItems] Curated deals: Using ${uniqueRandomKeywords.length} keywords: ${uniqueRandomKeywords.join(', ')}`);
+        const keywordPromises = Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm());
+        const resolvedKeywords = await Promise.all(keywordPromises);
+        const uniqueRandomKeywords = Array.from(new Set(resolvedKeywords.filter(kw => kw && kw.trim() !== '')));
+        
+        console.log(`[HomePage loadItems] Curated deals: Using ${uniqueRandomKeywords.length} resolved keywords: ${uniqueRandomKeywords.join(', ')}`);
 
-        const fetchedBatches = await Promise.all(
-          uniqueRandomKeywords.map(kw => fetchItems('deal', kw, true))
+        if (uniqueRandomKeywords.length === 0) {
+          console.warn("[HomePage loadItems] Curated deals: No valid keywords generated after resolving promises. Aborting fetch.");
+          throw new Error("Failed to generate valid keywords for curated deals.");
+        }
+        
+        const fetchedBatchesPromises = uniqueRandomKeywords.map(kw =>
+          fetchItems('deal', kw, true)
         );
+        const fetchedBatches = await Promise.all(fetchedBatchesPromises);
         
         const consolidatedItems = fetchedBatches.flat();
         const uniqueConsolidatedItemsMap = new Map<string, BayBotItem>();
@@ -163,7 +171,7 @@ function HomePageContent() {
         }
       }
 
-    } else { // Standard user search logic
+    } else { 
       const effectiveQueryForEbay = queryToLoad;
       console.log(`[HomePage loadItems] Standard search. eBay Query: "${effectiveQueryForEbay}", Type: "deal"`);
       try {
@@ -254,11 +262,20 @@ function HomePageContent() {
     (async () => {
       try {
         console.log('[HomePage handleLogoClick] Starting background curated auctions fetch...');
-        const uniqueBackgroundKeywords = Array.from(new Set(Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm())));
+        const backgroundKeywordPromises = Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm());
+        const resolvedBackgroundKeywords = await Promise.all(backgroundKeywordPromises);
+        const uniqueBackgroundKeywords = Array.from(new Set(resolvedBackgroundKeywords.filter(kw => kw && kw.trim() !== '')));
+
+        if (uniqueBackgroundKeywords.length === 0) {
+          console.warn('[HomePage handleLogoClick] Background task: No valid keywords for curated auctions. Aborting.');
+          return;
+        }
         
-        const backgroundFetchedBatches = await Promise.all(
-          uniqueBackgroundKeywords.map(kw => fetchItems('auction', kw, true))
+        const backgroundFetchedBatchesPromises = uniqueBackgroundKeywords.map(kw =>
+          fetchItems('auction', kw, true)
         );
+        const backgroundFetchedBatches = await Promise.all(backgroundFetchedBatchesPromises);
+        
         const consolidatedBackgroundItems = backgroundFetchedBatches.flat();
         const uniqueConsolidatedBackgroundMap = new Map<string, BayBotItem>();
         consolidatedBackgroundItems.forEach(item => {
@@ -266,29 +283,14 @@ function HomePageContent() {
             uniqueConsolidatedBackgroundMap.set(item.id, item);
           }
         });
-        const uniqueConsolidatedBackgroundAuctions = Array.from(uniqueConsolidatedBackgroundMap.values());
-
-        if (uniqueConsolidatedBackgroundAuctions.length > 0) {
-          const aiQualifiedAndRankedAuctions = await qualifyAuctionsAI(uniqueConsolidatedBackgroundAuctions, "general curated auctions (background logo click)");
+        const finalBackgroundAuctions = Array.from(uniqueConsolidatedBackgroundMap.values());
           
-          let finalBackgroundAuctions = [...aiQualifiedAndRankedAuctions];
-          if (aiQualifiedAndRankedAuctions.length < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiQualifiedAndRankedAuctions.length < uniqueConsolidatedBackgroundAuctions.length) {
-            const aiQualifiedIds = new Set(aiQualifiedAndRankedAuctions.map(d => d.id));
-            const fallbackItems = uniqueConsolidatedBackgroundAuctions.filter(d => !aiQualifiedIds.has(d.id));
-            finalBackgroundAuctions.push(...fallbackItems);
-          } else if (aiQualifiedAndRankedAuctions.length === 0 && uniqueConsolidatedBackgroundAuctions.length > 0) {
-            finalBackgroundAuctions = uniqueConsolidatedBackgroundAuctions;
-          }
-          
-          if (finalBackgroundAuctions.length > 0) {
-            sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
-            console.log(`[HomePage handleLogoClick] Background task: Saved ${finalBackgroundAuctions.length} curated auctions to sessionStorage.`);
-            toast({ title: "Curated Auctions Refreshed", description: "New set of curated auctions cached in background." });
-          } else {
-            console.log('[HomePage handleLogoClick] Background task: No curated auctions found/qualified to cache.');
-          }
+        if (finalBackgroundAuctions.length > 0) {
+          sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
+          console.log(`[HomePage handleLogoClick] Background task: Saved ${finalBackgroundAuctions.length} curated auctions to sessionStorage (no AI).`);
+          toast({ title: "Curated Auctions Refreshed", description: "New set of curated auctions cached (server-processed)." });
         } else {
-           console.log('[HomePage handleLogoClick] Background task: No initial items fetched for curated auctions.');
+          console.log('[HomePage handleLogoClick] Background task: No curated auctions found/qualified to cache.');
         }
       } catch (bgError) {
         console.error('[HomePage handleLogoClick] Error in background auction caching:', bgError);
@@ -393,4 +395,3 @@ export default function HomePage() {
     </Suspense>
   );
 }
-

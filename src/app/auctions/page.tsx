@@ -14,15 +14,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
 import { fetchItems, getRandomPopularSearchTerm } from '@/services/ebay-api-service';
-import { qualifyAuctions as qualifyAuctionsAI } from '@/ai/flows/qualify-auctions';
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
-  CURATED_DEALS_CACHE_KEY, 
+  CURATED_DEALS_CACHE_KEY,
   CURATED_AUCTIONS_CACHE_KEY,
   MIN_DESIRED_CURATED_ITEMS,
   MAX_CURATED_FETCH_ATTEMPTS,
-  MIN_AI_QUALIFIED_ITEMS_THRESHOLD
 } from '@/lib/constants';
 
 const ITEMS_PER_PAGE = 8;
@@ -42,7 +40,6 @@ function AuctionsPageContent() {
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
   const [isLoading, setIsLoading] = useState(true);
-  const [isQualifying, setIsQualifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAuthError, setIsAuthError] = useState(false);
 
@@ -59,7 +56,6 @@ function AuctionsPageContent() {
     setDisplayedItems([]);
     setVisibleItemCount(ITEMS_PER_PAGE);
     setIsLoading(true);
-    setIsQualifying(false);
     setError(null);
     setIsAuthError(false);
 
@@ -86,72 +82,67 @@ function AuctionsPageContent() {
       }
 
       console.log(`[AuctionsPage loadItems] Curated auctions: No valid cache. Fetching fresh. Target: ${MIN_DESIRED_CURATED_ITEMS} items.`);
-      setIsQualifying(true); 
+      let accumulatedItems: BayBotItem[] = [];
+      const attemptedKeywords = new Set<string>();
+      let fetchAttempts = 0;
 
-      try {
-        const uniqueRandomKeywords = Array.from(new Set(Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm())));
-        console.log(`[AuctionsPage loadItems] Curated auctions: Using ${uniqueRandomKeywords.length} keywords: ${uniqueRandomKeywords.join(', ')}`);
-
-        const fetchedBatches = await Promise.all(
-          uniqueRandomKeywords.map(kw => fetchItems('auction', kw, true))
-        );
-        
-        const consolidatedItems = fetchedBatches.flat();
-        const uniqueConsolidatedItemsMap = new Map<string, BayBotItem>();
-        consolidatedItems.forEach(item => {
-          if (!uniqueConsolidatedItemsMap.has(item.id)) {
-            uniqueConsolidatedItemsMap.set(item.id, item);
+      while (accumulatedItems.length < MIN_DESIRED_CURATED_ITEMS && fetchAttempts < MAX_CURATED_FETCH_ATTEMPTS) {
+        fetchAttempts++;
+        let currentKeyword = '';
+        try {
+          currentKeyword = await getRandomPopularSearchTerm();
+          if (attemptedKeywords.has(currentKeyword)) {
+            console.log(`[AuctionsPage loadItems] Keyword "${currentKeyword}" already attempted. Skipping. Attempt ${fetchAttempts}/${MAX_CURATED_FETCH_ATTEMPTS}`);
+            if (attemptedKeywords.size >= curatedHomepageSearchTerms.length) { // Ensure we don't loop infinitely if all terms are tried
+                console.warn("[AuctionsPage loadItems] All available unique keywords have been attempted for curated auctions.");
+                break;
+            }
+            continue; // Try to get a different keyword
           }
-        });
-        const uniqueConsolidatedItems = Array.from(uniqueConsolidatedItemsMap.values());
-        console.log(`[AuctionsPage loadItems] Curated auctions: Fetched ${uniqueConsolidatedItems.length} unique items from eBay across keywords.`);
+          attemptedKeywords.add(currentKeyword);
 
-        if (uniqueConsolidatedItems.length > 0) {
-          const aiQualifiedAndRankedItems: BayBotItem[] = await qualifyAuctionsAI(uniqueConsolidatedItems, "general curated auctions");
-          const aiCount = aiQualifiedAndRankedItems.length;
-          console.log(`[AuctionsPage loadItems] Curated auctions: AI qualified ${aiCount} items.`);
+          console.log(`[AuctionsPage loadItems] Curated auctions: Attempt ${fetchAttempts}/${MAX_CURATED_FETCH_ATTEMPTS}. Keyword: "${currentKeyword}". Accumulated: ${accumulatedItems.length}`);
+          
+          const newBatch = await fetchItems('auction', currentKeyword, true);
+          console.log(`[AuctionsPage loadItems] Fetched ${newBatch.length} auctions from server for keyword "${currentKeyword}".`);
 
-          finalProcessedItems = [...aiQualifiedAndRankedItems];
-
-          if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < uniqueConsolidatedItems.length) {
-            const aiQualifiedIds = new Set(aiQualifiedAndRankedItems.map(d => d.id));
-            const fallbackItems = uniqueConsolidatedItems.filter(d => !aiQualifiedIds.has(d.id));
-            finalProcessedItems.push(...fallbackItems);
-            overallToastMessage = { title: "Curated Auctions: AI Enhanced", description: `Displaying ${aiCount} AI-qualified auctions, plus ${fallbackItems.length} more.` };
-          } else if (aiCount === 0 && uniqueConsolidatedItems.length > 0) {
-            finalProcessedItems = uniqueConsolidatedItems;
-            overallToastMessage = { title: "Curated Auctions: Server Processed", description: `Displaying ${uniqueConsolidatedItems.length} server-processed auctions. AI found no specific qualifications.` };
-          } else if (aiCount > 0) {
-            overallToastMessage = { title: "Curated Auctions: AI Qualified", description: `Displaying ${aiCount} AI-qualified auctions.` };
+          if (newBatch.length > 0) {
+            const currentAccumulatedIds = new Set(accumulatedItems.map(item => item.id));
+            const uniqueNewItems = newBatch.filter(item => !currentAccumulatedIds.has(item.id));
+            accumulatedItems.push(...uniqueNewItems);
+            console.log(`[AuctionsPage loadItems] Added ${uniqueNewItems.length} unique server-processed auctions for "${currentKeyword}". Total accumulated: ${accumulatedItems.length}.`);
           } else {
-             overallToastMessage = { title: "No Curated Auctions", description: "Could not find any curated auctions matching criteria." };
+            console.log(`[AuctionsPage loadItems] No auctions found for keyword "${currentKeyword}".`);
           }
-        } else {
-          overallToastMessage = { title: "No Curated Auctions", description: "No auctions found from initial fetch." };
-        }
-        
-        if (finalProcessedItems.length < MIN_DESIRED_CURATED_ITEMS && finalProcessedItems.length > 0) {
-             console.warn(`[AuctionsPage loadItems] Curated auction fetch resulted in ${finalProcessedItems.length} items, less than target ${MIN_DESIRED_CURATED_ITEMS}. Toast already set by primary/fallback logic.`);
-        } else if (finalProcessedItems.length === 0 && !overallToastMessage) {
-             overallToastMessage = { title: "No Curated Auctions", description: "No auctions found after processing." };
-        }
 
-      } catch (e: any) {
-        console.error(`[AuctionsPage loadItems] Error fetching curated auctions:`, e);
-        let displayMessage = "Failed to load curated auctions.";
-        if (typeof e.message === 'string') {
-          if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
-            displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs."; setIsAuthError(true);
-          } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
-            displayMessage = "eBay API Authentication Failed. Check credentials and server logs."; setIsAuthError(true);
-          } else { displayMessage = e.message; }
+        } catch (e: any) {
+          console.error(`[AuctionsPage loadItems] Error during curated auction fetch attempt ${fetchAttempts} with keyword "${currentKeyword}":`, e);
+          let displayMessage = `Failed to load some curated auctions (attempt ${fetchAttempts}).`;
+           if (typeof e.message === 'string') {
+            if (e.message.includes("invalid_client") || e.message.includes("Critical eBay API Authentication Failure")) {
+              displayMessage = "Critical eBay API Authentication Failure. Check .env and server logs."; setIsAuthError(true);
+              setError(displayMessage); // Set error for main display
+              break; // Stop fetching if auth is broken
+            } else if (e.message.includes("OAuth") || e.message.includes("authenticate with eBay API")) {
+              displayMessage = "eBay API Authentication Failed. Check credentials and server logs."; setIsAuthError(true);
+              setError(displayMessage);
+              break; 
+            }
+          }
+          toast({ title: "Fetch Warning", description: displayMessage, variant: "destructive" });
+          if (isAuthError) break; // Stop if critical auth error set
         }
-        setError(displayMessage);
-        finalProcessedItems = [];
-      } finally {
-        setIsQualifying(false);
+         if (accumulatedItems.length >= MIN_DESIRED_CURATED_ITEMS) break;
       }
+      
+      finalProcessedItems = accumulatedItems;
 
+      if (finalProcessedItems.length > 0) {
+        overallToastMessage = { title: "Curated Auctions: Server Processed", description: `Displaying ${finalProcessedItems.length} server-processed auctions from ${fetchAttempts} keyword attempts.` };
+      } else if (!error) { // Only show this if no major error occurred
+        overallToastMessage = { title: "No Curated Auctions", description: `Could not find enough curated auctions after ${fetchAttempts} attempts.` };
+      }
+      
       if (!error && finalProcessedItems.length > 0) {
         try {
           sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalProcessedItems, timestamp: Date.now() }));
@@ -168,32 +159,15 @@ function AuctionsPageContent() {
         const fetchedItems: BayBotItem[] = await fetchItems('auction', effectiveQueryForEbay, false);
         console.log(`[AuctionsPage loadItems] Fetched ${fetchedItems.length} auctions from server for query "${effectiveQueryForEbay}".`);
 
+        finalProcessedItems = fetchedItems; // Display server-processed items directly
+
         if (fetchedItems.length > 0) {
-          setIsQualifying(true);
-          const aiQualifiedAndRankedItems: BayBotItem[] = await qualifyAuctionsAI(fetchedItems, effectiveQueryForEbay);
-          const aiCount = aiQualifiedAndRankedItems.length;
-          console.log(`[AuctionsPage loadItems] AI qualified ${aiCount} auctions for query "${effectiveQueryForEbay}".`);
-
-          finalProcessedItems = [...aiQualifiedAndRankedItems];
-
-          if (aiCount < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiCount < fetchedItems.length) {
-            const aiQualifiedIds = new Set(aiQualifiedAndRankedItems.map(d => d.id));
-            const fallbackItems = fetchedItems.filter(d => !aiQualifiedIds.has(d.id));
-            finalProcessedItems.push(...fallbackItems);
-            overallToastMessage = { title: "Auctions: AI Enhanced", description: `Displaying ${aiCount} AI-qualified, plus ${fallbackItems.length} more for "${effectiveQueryForEbay}".` };
-          } else if (aiCount === 0 && fetchedItems.length > 0) {
-             finalProcessedItems = fetchedItems;
-             overallToastMessage = { title: "Auctions: Server Processed", description: `Displaying ${fetchedItems.length} server-processed auctions for "${effectiveQueryForEbay}". AI found no specific qualifications.` };
-          } else if (aiCount > 0) {
-            overallToastMessage = { title: "Auctions: AI Qualified", description: `Displaying ${aiCount} AI-qualified auctions for "${effectiveQueryForEbay}".` };
-          } else {
-             overallToastMessage = { title: "No Auctions Found", description: `No auctions found for "${effectiveQueryForEbay}" after AI processing.` };
-          }
+            overallToastMessage = { title: "Auctions: Server Processed", description: `Displaying ${fetchedItems.length} server-processed auctions for "${effectiveQueryForEbay}".` };
         } else {
-          overallToastMessage = { title: "No Auctions Found", description: `No auctions found for "${effectiveQueryForEbay}".` };
+            overallToastMessage = { title: "No Auctions Found", description: `No auctions found for "${effectiveQueryForEbay}".` };
         }
-      } catch (e: any)
-      {
+
+      } catch (e: any) {
         console.error(`[AuctionsPage loadItems] Failed to load auctions for query '${effectiveQueryForEbay}'. Error:`, e);
         let displayMessage = `Failed to load auctions for "${effectiveQueryForEbay}". Please try again.`;
         if (typeof e.message === 'string') {
@@ -205,8 +179,6 @@ function AuctionsPageContent() {
         }
         setError(displayMessage);
         finalProcessedItems = [];
-      } finally {
-        setIsQualifying(false);
       }
     }
 
@@ -216,7 +188,7 @@ function AuctionsPageContent() {
 
     if (overallToastMessage && !error) {
       toast(overallToastMessage);
-    } else if (error && !isAuthError) {
+    } else if (error && !isAuthError) { // Don't double-toast if auth error message already shown by setError
       toast({ title: "Error Loading Auctions", description: error || "An unexpected error occurred.", variant: "destructive" });
     }
     console.log(`[AuctionsPage loadItems] Finalizing. Displayed ${finalProcessedItems.slice(0, ITEMS_PER_PAGE).length} of ${finalProcessedItems.length} total auctions.`);
@@ -242,11 +214,20 @@ function AuctionsPageContent() {
     (async () => {
       try {
         console.log('[AuctionsPage handleLogoClick] Starting background curated auctions fetch...');
-        const uniqueBackgroundKeywords = Array.from(new Set(Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm())));
+        const backgroundKeywordPromises = Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm());
+        const resolvedBackgroundKeywords = await Promise.all(backgroundKeywordPromises);
+        const uniqueBackgroundKeywords = Array.from(new Set(resolvedBackgroundKeywords.filter(kw => kw && kw.trim() !== '')));
+
+        if (uniqueBackgroundKeywords.length === 0) {
+          console.warn('[AuctionsPage handleLogoClick] Background task: No valid keywords for curated auctions. Aborting.');
+          return;
+        }
         
-        const backgroundFetchedBatches = await Promise.all(
-          uniqueBackgroundKeywords.map(kw => fetchItems('auction', kw, true))
+        const backgroundFetchedBatchesPromises = uniqueBackgroundKeywords.map(kw =>
+          fetchItems('auction', kw, true)
         );
+        const backgroundFetchedBatches = await Promise.all(backgroundFetchedBatchesPromises);
+        
         const consolidatedBackgroundItems = backgroundFetchedBatches.flat();
         const uniqueConsolidatedBackgroundMap = new Map<string, BayBotItem>();
         consolidatedBackgroundItems.forEach(item => {
@@ -254,29 +235,14 @@ function AuctionsPageContent() {
             uniqueConsolidatedBackgroundMap.set(item.id, item);
           }
         });
-        const uniqueConsolidatedBackgroundAuctions = Array.from(uniqueConsolidatedBackgroundMap.values());
+        const finalBackgroundAuctions = Array.from(uniqueConsolidatedBackgroundMap.values());
 
-        if (uniqueConsolidatedBackgroundAuctions.length > 0) {
-          const aiQualifiedAndRankedAuctions = await qualifyAuctionsAI(uniqueConsolidatedBackgroundAuctions, "general curated auctions (background logo click)");
-          
-          let finalBackgroundAuctions = [...aiQualifiedAndRankedAuctions];
-          if (aiQualifiedAndRankedAuctions.length < MIN_AI_QUALIFIED_ITEMS_THRESHOLD && aiQualifiedAndRankedAuctions.length < uniqueConsolidatedBackgroundAuctions.length) {
-            const aiQualifiedIds = new Set(aiQualifiedAndRankedAuctions.map(d => d.id));
-            const fallbackItems = uniqueConsolidatedBackgroundAuctions.filter(d => !aiQualifiedIds.has(d.id));
-            finalBackgroundAuctions.push(...fallbackItems);
-          } else if (aiQualifiedAndRankedAuctions.length === 0 && uniqueConsolidatedBackgroundAuctions.length > 0) {
-            finalBackgroundAuctions = uniqueConsolidatedBackgroundAuctions;
-          }
-
-          if (finalBackgroundAuctions.length > 0) {
-            sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
-            console.log(`[AuctionsPage handleLogoClick] Background task: Saved ${finalBackgroundAuctions.length} curated auctions to sessionStorage.`);
-             toast({ title: "Curated Auctions Refreshed", description: "New set of curated auctions cached in background." });
-          } else {
-             console.log('[AuctionsPage handleLogoClick] Background task: No curated auctions found/qualified to cache.');
-          }
+        if (finalBackgroundAuctions.length > 0) {
+          sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
+          console.log(`[AuctionsPage handleLogoClick] Background task: Saved ${finalBackgroundAuctions.length} curated auctions to sessionStorage (no AI).`);
+           toast({ title: "Curated Auctions Refreshed", description: "New set of curated auctions cached (server-processed)." });
         } else {
-          console.log('[AuctionsPage handleLogoClick] Background task: No initial items fetched for curated auctions.');
+           console.log('[AuctionsPage handleLogoClick] Background task: No curated auctions found/qualified to cache.');
         }
       } catch (bgError) {
         console.error('[AuctionsPage handleLogoClick] Error in background auction caching:', bgError);
@@ -309,8 +275,8 @@ function AuctionsPageContent() {
     ? `Try adjusting your search for "${currentQueryFromUrl}".`
     : "No global curated auctions available right now. Check back later or try a specific search!";
   
-  if (allItems.length === 0 && !isLoading && !isQualifying && !error && currentQueryFromUrl === '') {
-      noItemsDescription = `We tried fetching curated auctions but couldn't find enough. Try a specific search!`;
+  if (allItems.length === 0 && !isLoading && !error && currentQueryFromUrl === '') {
+      noItemsDescription = `We couldn't find any curated auctions. Try a specific search or check back!`;
   }
 
   return (
@@ -330,13 +296,13 @@ function AuctionsPageContent() {
           </Alert>
         )}
 
-        {(isLoading || isQualifying) && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
+        {isLoading && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
 
-        {!isLoading && !isQualifying && displayedItems.length === 0 && !error && (
+        {!isLoading && displayedItems.length === 0 && !error && (
            <NoItemsMessage title={noItemsTitle} description={noItemsDescription} />
         )}
 
-        {!isLoading && !isQualifying && displayedItems.length > 0 && (
+        {!isLoading && displayedItems.length > 0 && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
               {displayedItems.map(item => (
@@ -378,3 +344,4 @@ export default function AuctionsPage() {
     </Suspense>
   );
 }
+
