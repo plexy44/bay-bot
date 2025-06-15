@@ -15,13 +15,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info } from "lucide-react";
 import type { BayBotItem } from '@/types';
 import { fetchItems, getRandomPopularSearchTerm } from '@/services/ebay-api-service';
-// AI ranking for auctions is removed, so qualifyAuctionsAI is not needed.
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   CURATED_AUCTIONS_CACHE_KEY,
-  CURATED_DEALS_CACHE_KEY, // Still needed for handleLogoClick
-  MIN_DESIRED_CURATED_ITEMS, // Used as a general target
+  CURATED_DEALS_CACHE_KEY,
+  MIN_DESIRED_CURATED_ITEMS,
   MAX_CURATED_FETCH_ATTEMPTS
 } from '@/lib/constants';
 
@@ -41,7 +40,7 @@ function AuctionsPageContent() {
   const [displayedItems, setDisplayedItems] = useState<BayBotItem[]>([]);
   const [allItems, setAllItems] = useState<BayBotItem[]>([]);
   const [visibleItemCount, setVisibleItemCount] = useState(ITEMS_PER_PAGE);
-  const [isLoading, setIsLoading] = useState(true); // For initial load / primary content
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAuthError, setIsAuthError] = useState(false);
 
@@ -50,41 +49,49 @@ function AuctionsPageContent() {
 
   const { toast } = useToast();
 
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+  const [topUpAttempted, setTopUpAttempted] = useState(false);
+
+  useEffect(() => {
+    setInitialLoadComplete(false);
+    setTopUpAttempted(false);
+  }, [currentQueryFromUrl]);
+
   const loadItems = useCallback(async (queryToLoad: string) => {
     console.log(`[AuctionsPage loadItems] Initiating. Query: "${queryToLoad}"`);
     const isGlobalCuratedRequest = queryToLoad === '';
 
-    // Reset states for new load, but not if it's just a background enhancement.
-    // The progressive load handles its own state updates.
-    if (!isGlobalCuratedRequest) { // For user searches, reset fully
+    if (!isGlobalCuratedRequest) {
         setAllItems([]);
         setDisplayedItems([]);
         setVisibleItemCount(ITEMS_PER_PAGE);
     }
-    setIsLoading(true); // Always true for a new focused load (search or initial curated)
+    setIsLoading(true);
     setError(null);
     setIsAuthError(false);
+    if (isGlobalCuratedRequest) {
+      setInitialLoadComplete(false);
+      setTopUpAttempted(false);
+    }
 
     let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
+    let processedItemsForState: BayBotItem[] = [];
 
     if (isGlobalCuratedRequest) {
+      let activeCachedItems: BayBotItem[] = [];
       try {
         const cachedDataString = sessionStorage.getItem(CURATED_AUCTIONS_CACHE_KEY);
         if (cachedDataString) {
           const cachedData = JSON.parse(cachedDataString);
-          const activeCachedItems = (cachedData.items as BayBotItem[] || []).filter(item => {
+          activeCachedItems = (cachedData.items as BayBotItem[] || []).filter(item => {
             return item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true;
           });
 
           if (activeCachedItems.length > 0) {
             console.log(`[AuctionsPage loadItems] Found ${activeCachedItems.length} active curated auctions in sessionStorage.`);
-            setAllItems(activeCachedItems);
-            // displayedItems will update via useEffect
-            setIsLoading(false);
+            processedItemsForState = activeCachedItems;
             toast({ title: "Loaded Cached Curated Auctions", description: "Displaying previously fetched active auctions." });
-            return; // Exit if valid cache found
           } else {
-            console.log(`[AuctionsPage loadItems] All cached curated auctions ended or cache empty. Fetching fresh.`);
             sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
           }
         }
@@ -93,133 +100,115 @@ function AuctionsPageContent() {
         sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
       }
 
-      // --- Progressive Loading for Global Curated Auctions ---
-      console.log(`[AuctionsPage loadItems] Curated auctions: Starting progressive load.`);
-      let initialItems: BayBotItem[] = [];
-      const attemptedKeywordsForSession = new Set<string>();
-      let initialFetchError = null;
+      if (processedItemsForState.length === 0) { // No valid cache, perform progressive fresh fetch
+        console.log(`[AuctionsPage loadItems] Curated auctions: Starting progressive load.`);
+        let initialItems: BayBotItem[] = [];
+        const attemptedKeywordsForSession = new Set<string>();
+        let initialFetchError = null;
+        let backgroundFetchPromise = Promise.resolve(); // For managing overall completion
 
-      // 1. Initial Foreground Fetch
-      try {
-        let firstKeyword = '';
-        let keywordFetchAttempts = 0;
-        while (!firstKeyword && keywordFetchAttempts < 5) { // Try to get a unique keyword
-            const randomKw = await getRandomPopularSearchTerm();
-            if (!attemptedKeywordsForSession.has(randomKw)) {
-                firstKeyword = randomKw;
-                attemptedKeywordsForSession.add(randomKw);
-            }
-            keywordFetchAttempts++;
-        }
-        if (!firstKeyword) throw new Error("Failed to get unique initial keyword for curated auctions.");
+        // 1. Initial Foreground Fetch
+        try {
+          let firstKeyword = '';
+          let keywordFetchAttempts = 0;
+          while (!firstKeyword && keywordFetchAttempts < 5) {
+              const randomKw = await getRandomPopularSearchTerm();
+              if (!attemptedKeywordsForSession.has(randomKw)) {
+                  firstKeyword = randomKw;
+                  attemptedKeywordsForSession.add(randomKw);
+              }
+              keywordFetchAttempts++;
+          }
+          if (!firstKeyword) throw new Error("Failed to get unique initial keyword for curated auctions.");
 
-        console.log(`[AuctionsPage loadItems] Curated (Initial): Fetching for keyword "${firstKeyword}".`);
-        initialItems = await fetchItems('auction', firstKeyword, true);
-        
-        if (initialItems.length > 0) {
-            setAllItems(initialItems);
-            // displayedItems will update via useEffect
+          console.log(`[AuctionsPage loadItems] Curated (Initial): Fetching for keyword "${firstKeyword}".`);
+          initialItems = await fetchItems('auction', firstKeyword, true);
+          
+          if (initialItems.length > 0) {
+            processedItemsForState = initialItems; // Set for immediate display
             sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: initialItems, timestamp: Date.now() }));
             toast({ title: "Initial Auctions Loaded", description: `Found ${initialItems.length} from first keyword. Fetching more...` });
-        } else {
-            toast({ title: "Initial Auctions", description: `No auctions from first keyword. Fetching more...` });
-        }
-      } catch (e: any) {
-        console.error(`[AuctionsPage loadItems] Curated (Initial): Error fetching:`, e);
-        initialFetchError = e.message || "Failed to fetch initial auctions.";
-        if (e.message?.includes("Authentication Failure") || e.message?.includes("invalid_client")) {
-          setIsAuthError(true);
-          setError(initialFetchError); // Show auth error immediately
-        }
-      } finally {
-        setIsLoading(false); // Initial loading is done
-      }
-
-      // 2. Background Enhancement Fetches (only if no critical auth error from initial)
-      if (!isAuthError && MAX_CURATED_FETCH_ATTEMPTS > 1) {
-        (async () => {
-          console.log(`[AuctionsPage loadItems] Curated (Background): Starting enhancement fetches.`);
-          const additionalKeywordsToFetch: string[] = [];
-          let uniqueKeywordAttempts = 0;
-          while (additionalKeywordsToFetch.length < MAX_CURATED_FETCH_ATTEMPTS - 1 && uniqueKeywordAttempts < 10) {
-            const randomKw = await getRandomPopularSearchTerm();
-            if (!attemptedKeywordsForSession.has(randomKw)) {
-              additionalKeywordsToFetch.push(randomKw);
-              attemptedKeywordsForSession.add(randomKw);
-            }
-            uniqueKeywordAttempts++;
-          }
-
-          if (additionalKeywordsToFetch.length > 0) {
-            console.log(`[AuctionsPage loadItems] Curated (Background): Fetching for ${additionalKeywordsToFetch.length} additional keywords: ${additionalKeywordsToFetch.join(', ')}`);
-            const backgroundFetchPromises = additionalKeywordsToFetch.map(kw => fetchItems('auction', kw, true));
-            const backgroundResults = await Promise.allSettled(backgroundFetchPromises);
-
-            const successfullyFetchedBackgroundItems = backgroundResults
-              .filter(res => res.status === 'fulfilled')
-              .flatMap(res => (res as PromiseFulfilledResult<BayBotItem[]>).value);
-
-            if (successfullyFetchedBackgroundItems.length > 0) {
-              setAllItems(prevAllItems => {
-                const combined = [...prevAllItems, ...successfullyFetchedBackgroundItems];
-                const uniqueMap = new Map(combined.map(item => [item.id, item]));
-                const newAllItems = Array.from(uniqueMap.values());
-                
-                // Filter out ended auctions again before final set and cache
-                const activeNewAllItems = newAllItems.filter(item => {
-                    return item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true;
-                });
-
-                sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: activeNewAllItems, timestamp: Date.now() }));
-                console.log(`[AuctionsPage loadItems] Curated (Background): Merged ${successfullyFetchedBackgroundItems.length} new items. Total unique active: ${activeNewAllItems.length}`);
-                toast({ title: "More Curated Auctions Loaded", description: `Now displaying ${activeNewAllItems.length} auctions.` });
-                return activeNewAllItems;
-              });
-            } else {
-                console.log(`[AuctionsPage loadItems] Curated (Background): No additional items from background fetches.`);
-            }
           } else {
-             console.log(`[AuctionsPage loadItems] Curated (Background): No additional unique keywords to fetch for background enhancement.`);
+            toast({ title: "Initial Auctions", description: `No auctions from first keyword. Fetching more...` });
           }
-        })();
-      } else if (isAuthError) {
-          console.log("[AuctionsPage loadItems] Curated (Background): Skipped due to initial auth error.");
-      }
-      
-      // If initial fetch failed and no background enhancement happens or also fails
-      if (initialItems.length === 0 && (MAX_CURATED_FETCH_ATTEMPTS <= 1 || isAuthError) && initialFetchError && !error) {
-        setError(initialFetchError);
-      } else if (initialItems.length === 0 && !initialFetchError && !error && !isAuthError) {
-        // This means initial fetch was successful but returned 0 items, and we are waiting for background
-        // If background also yields nothing, a "no items found" message will appear.
-        // No explicit error here, handled by NoItemsMessage component.
-      }
+        } catch (e: any) {
+          console.error(`[AuctionsPage loadItems] Curated (Initial): Error fetching:`, e);
+          initialFetchError = e.message || "Failed to fetch initial auctions.";
+          if (e.message?.includes("Authentication Failure") || e.message?.includes("invalid_client")) {
+            setIsAuthError(true);
+            setError(initialFetchError);
+          }
+        } finally {
+          setIsLoading(false); // Initial foreground loading is done for UX
+        }
 
-    } else { // --- Standard User Search for Auctions ---
+        // 2. Background Enhancement Fetches (only if no critical auth error from initial)
+        if (!isAuthError && MAX_CURATED_FETCH_ATTEMPTS > 1) {
+          backgroundFetchPromise = (async () => {
+            console.log(`[AuctionsPage loadItems] Curated (Background): Starting enhancement fetches.`);
+            const additionalKeywordsToFetch: string[] = [];
+            let uniqueKeywordAttempts = 0;
+            while (additionalKeywordsToFetch.length < MAX_CURATED_FETCH_ATTEMPTS - 1 && uniqueKeywordAttempts < 10) {
+              const randomKw = await getRandomPopularSearchTerm();
+              if (!attemptedKeywordsForSession.has(randomKw)) {
+                additionalKeywordsToFetch.push(randomKw);
+                attemptedKeywordsForSession.add(randomKw);
+              }
+              uniqueKeywordAttempts++;
+            }
+
+            if (additionalKeywordsToFetch.length > 0) {
+              const backgroundFetchPromises = additionalKeywordsToFetch.map(kw => fetchItems('auction', kw, true));
+              const backgroundResults = await Promise.allSettled(backgroundFetchPromises);
+
+              const successfullyFetchedBackgroundItems = backgroundResults
+                .filter(res => res.status === 'fulfilled')
+                .flatMap(res => (res as PromiseFulfilledResult<BayBotItem[]>).value);
+
+              if (successfullyFetchedBackgroundItems.length > 0) {
+                setAllItems(prevAllItems => { // Use functional update for allItems
+                  const combined = [...prevAllItems, ...successfullyFetchedBackgroundItems];
+                  const uniqueMap = new Map(combined.map(item => [item.id, item]));
+                  const activeNewAllItems = Array.from(uniqueMap.values()).filter(item => 
+                    item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true
+                  );
+                  sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: activeNewAllItems, timestamp: Date.now() }));
+                  console.log(`[AuctionsPage loadItems] Curated (Background): Merged ${successfullyFetchedBackgroundItems.length} new items. Total unique active: ${activeNewAllItems.length}`);
+                  if (activeNewAllItems.length > prevAllItems.length) {
+                    toast({ title: "More Curated Auctions Loaded", description: `Now displaying ${activeNewAllItems.length} auctions.` });
+                  }
+                  return activeNewAllItems; // This becomes the new allItems
+                });
+              }
+            }
+          })();
+        }
+        // Wait for background task only for setting initialLoadComplete, not for rendering
+        await backgroundFetchPromise.catch(e => console.error("Error in background enhancement:", e));
+        
+        if (processedItemsForState.length === 0 && initialFetchError && !error) { // If initial failed and no items shown yet
+          setError(initialFetchError);
+        }
+      }
+      // End of global curated request specific logic
+
+    } else { // Standard User Search for Auctions
       console.log(`[AuctionsPage loadItems] Standard auction search. eBay Query: "${queryToLoad}"`);
       let fetchedItems: BayBotItem[] = [];
       try {
         fetchedItems = await fetchItems('auction', queryToLoad, false);
-        console.log(`[AuctionsPage loadItems] Fetched ${fetchedItems.length} auctions from server for query "${queryToLoad}".`);
-        
-        const activeFetchedItems = fetchedItems.filter(item => {
-            return item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true;
-        });
-        
-        if (activeFetchedItems.length !== fetchedItems.length) {
-            console.log(`[AuctionsPage loadItems] Filtered out ${fetchedItems.length - activeFetchedItems.length} ended auctions from user search results.`);
-        }
-
-        setAllItems(activeFetchedItems);
-        // displayedItems will update via useEffect
+        const activeFetchedItems = fetchedItems.filter(item => 
+            item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true
+        );
+        processedItemsForState = activeFetchedItems;
 
         if (activeFetchedItems.length > 0) {
           overallToastMessage = { title: "Auctions Found", description: `Displaying ${activeFetchedItems.length} auctions for "${queryToLoad}".` };
         } else {
           overallToastMessage = { title: "No Auctions Found", description: `No active auctions found for "${queryToLoad}".` };
         }
-
-      } catch (e: any) {
+      } catch (e: any)
+      {
         console.error(`[AuctionsPage loadItems] Failed to load auctions for query '${queryToLoad}'. Error:`, e);
         let displayMessage = `Failed to load auctions for "${queryToLoad}". Please try again.`;
         if (typeof e.message === 'string') {
@@ -230,19 +219,89 @@ function AuctionsPageContent() {
           } else { displayMessage = e.message; }
         }
         setError(displayMessage);
-        setAllItems([]); // Ensure allItems is empty on error
+        processedItemsForState = [];
       } finally {
-        setIsLoading(false);
-      }
-      if (overallToastMessage && !error) {
-        toast(overallToastMessage);
-      } else if (error && !isAuthError) {
-        toast({ title: "Error Loading Auctions", description: error || "An unexpected error occurred.", variant: "destructive" });
+         setIsLoading(false); // For user search, loading ends here
       }
     }
-    // The main setIsLoading(false) is handled within each branch (curated progressive or user search)
-    // console.log(`[AuctionsPage loadItems] Finalizing.isLoading should be false if not a new progressive load.`);
-  }, [toast]); // Removed currentQueryFromUrl, it's passed as queryToLoad
+
+    setAllItems(processedItemsForState);
+    // displayedItems will update via useEffect
+    if (isGlobalCuratedRequest) {
+      setInitialLoadComplete(true); // Signal initial load phase is complete for curated
+    }
+    if (overallToastMessage && !error) {
+      toast(overallToastMessage);
+    } else if (error && !isAuthError && !isGlobalCuratedRequest) { // Only toast general errors for non-curated
+      toast({ title: "Error Loading Auctions", description: error || "An unexpected error occurred.", variant: "destructive" });
+    }
+     // setIsLoading(false) should have been called for non-curated, and for initial part of curated.
+     // If it's curated and still loading in background, isLoading is already false.
+  }, [toast, ITEMS_PER_PAGE]);
+
+  // Top-up useEffect for curated auctions
+  useEffect(() => {
+    const isGlobalCuratedView = !currentQueryFromUrl;
+    // Check active items from allItems directly for the condition
+    const activeAllItems = allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true);
+
+    if (isGlobalCuratedView && initialLoadComplete && !topUpAttempted && !isLoading && !error && !isAuthError && activeAllItems.length < MIN_DESIRED_CURATED_ITEMS) {
+      console.log(`[AuctionsPage Top-Up Effect] Current active items ${activeAllItems.length} < ${MIN_DESIRED_CURATED_ITEMS}. Initiating top-up for AUCTIONS.`);
+      setTopUpAttempted(true);
+      setIsLoading(true); // Indicate top-up activity
+
+      (async () => {
+        try {
+          const currentItemIds = new Set(activeAllItems.map(item => item.id));
+          const numAdditionalKeywords = Math.max(1, Math.floor(MAX_CURATED_FETCH_ATTEMPTS / 2) || 1);
+          const additionalKeywordPromises = Array.from({ length: numAdditionalKeywords }, () => getRandomPopularSearchTerm());
+          const resolvedAdditionalKeywords = await Promise.all(additionalKeywordPromises);
+          // Ensure keywords are unique among themselves AND different from any used in the current progressive load (if possible to track)
+          // For simplicity, just unique among themselves for now.
+          const uniqueAdditionalKeywords = Array.from(new Set(resolvedAdditionalKeywords.filter(kw => kw && kw.trim() !== '')));
+
+          if (uniqueAdditionalKeywords.length === 0) {
+              console.warn("[AuctionsPage Top-Up Effect] No valid additional keywords for auctions. Aborting top-up.");
+              return;
+          }
+          
+          console.log(`[AuctionsPage Top-Up Effect] Fetching auctions for ${uniqueAdditionalKeywords.length} additional keywords: ${uniqueAdditionalKeywords.join(', ')}`);
+          const additionalFetchedBatchesPromises = uniqueAdditionalKeywords.map(kw => fetchItems('auction', kw, true));
+          const additionalFetchedBatchesResults = await Promise.allSettled(additionalFetchedBatchesPromises);
+
+          const successfullyFetchedAdditionalItemsRaw = additionalFetchedBatchesResults
+              .filter(res => res.status === 'fulfilled')
+              .flatMap(res => (res as PromiseFulfilledResult<BayBotItem[]>).value);
+
+          const newUniqueActiveAdditionalItems = successfullyFetchedAdditionalItemsRaw
+              .filter(item => !currentItemIds.has(item.id)) 
+              .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true);
+
+          if (newUniqueActiveAdditionalItems.length > 0) {
+              console.log(`[AuctionsPage Top-Up Effect] Fetched ${newUniqueActiveAdditionalItems.length} new unique, active additional auctions.`);
+              
+              setAllItems(prevAllItems => { // Functional update
+                const combinedItems = [...prevAllItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true), ...newUniqueActiveAdditionalItems];
+                const uniqueMap = new Map(combinedItems.map(item => [item.id, item]));
+                const finalToppedUpItems = Array.from(uniqueMap.values());
+                
+                sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalToppedUpItems, timestamp: Date.now() }));
+                toast({ title: "More Curated Auctions Loaded", description: `Now displaying ${finalToppedUpItems.length} active auctions.` });
+                return finalToppedUpItems;
+              });
+          } else {
+              console.log(`[AuctionsPage Top-Up Effect] No new, active additional auctions found from top-up fetch.`);
+          }
+        } catch (e: any) {
+          console.error("[AuctionsPage Top-Up Effect] Error during auctions top-up:", e);
+          toast({ title: "Error Topping Up Auctions", description: e.message || "Failed to fetch additional auctions.", variant: "destructive" });
+        } finally {
+          setIsLoading(false); // End top-up loading indication
+        }
+      })();
+    }
+  }, [allItems, initialLoadComplete, topUpAttempted, isLoading, error, isAuthError, currentQueryFromUrl, toast]);
+
 
   useEffect(() => {
     console.log(`[AuctionsPage URL useEffect] Current URL query: "${currentQueryFromUrl}". Triggering loadItems.`);
@@ -261,6 +320,8 @@ function AuctionsPageContent() {
     sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
     sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
     setInputValue('');
+    setInitialLoadComplete(false);
+    setTopUpAttempted(false);
 
     (async () => {
       try {
@@ -289,13 +350,9 @@ function AuctionsPageContent() {
             const uniqueDeals = Array.from(uniqueDealsMap.values());
 
             if (uniqueDeals.length > 0) {
-              // Assuming rankDealsAI is imported for deals page, or this needs to be adjusted if not.
-              // For this file, it's not imported. Let's say deals are not AI ranked for simplicity here,
-              // or we'd need to import rankDealsAI.
-              // For now, just cache server-processed deals.
               sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: uniqueDeals, timestamp: Date.now() }));
-              console.log(`[AuctionsPage handleLogoClick] Background task: Saved ${uniqueDeals.length} server-processed curated deals to sessionStorage.`);
-              toast({ title: "Curated Deals Refreshed", description: `${uniqueDeals.length} deals cached.` });
+              console.log(`[AuctionsPage handleLogoClick] Background task: Saved ${uniqueDeals.length} server-processed curated deals to sessionStorage (Note: Deals page will AI rank on its load if needed).`);
+              toast({ title: "Curated Deals Background Cache Updated", description: `${uniqueDeals.length} deals pre-cached.` });
             } else {
               console.log('[AuctionsPage handleLogoClick] Background task: No curated deals found to cache.');
             }
@@ -318,7 +375,7 @@ function AuctionsPageContent() {
             const uniqueAuctionsMap = new Map<string, BayBotItem>();
             consolidatedAuctions.forEach(item => { if (!uniqueAuctionsMap.has(item.id)) uniqueAuctionsMap.set(item.id, item); });
             const finalBackgroundAuctions = Array.from(uniqueAuctionsMap.values())
-                .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true); // Filter ended
+                .filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true);
               
             if (finalBackgroundAuctions.length > 0) {
               sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
@@ -347,7 +404,6 @@ function AuctionsPageContent() {
 
   const handleLoadMore = () => {
     const newVisibleCount = visibleItemCount + ITEMS_PER_PAGE;
-    // No change needed here, setDisplayedItems is handled by useEffect based on allItems & visibleItemCount
     setVisibleItemCount(newVisibleCount);
   };
 
@@ -365,7 +421,6 @@ function AuctionsPageContent() {
   const handleAuctionEnd = useCallback((endedItemId: string) => {
     setAllItems(prevItems => prevItems.filter(item => item.id !== endedItemId));
     
-    // Update cache only if it's the global curated view being affected
     const isGlobalCuratedViewOnPage = !currentQueryFromUrl;
     if (isGlobalCuratedViewOnPage) {
         try {
@@ -379,29 +434,25 @@ function AuctionsPageContent() {
                     } else {
                         sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
                     }
-                    console.log(`[AuctionsPage handleAuctionEnd] Updated sessionStorage cache. Removed item ${endedItemId}. New cache size: ${updatedCachedItems.length}`);
                 }
             }
         } catch (e) {
             console.warn(`[AuctionsPage handleAuctionEnd] Error updating sessionStorage for ended auction ${endedItemId}:`, e);
         }
     }
-    const endedItem = allItems.find(item => item.id === endedItemId);
+    const endedItem = allItems.find(item => item.id === endedItemId); // Find before filtering from allItems
     toast({ 
         title: "Auction Ended", 
         description: `${endedItem ? `"${endedItem.title.substring(0,30)}..."` : "An auction"} has ended and been removed.` 
     });
-  }, [allItems, currentQueryFromUrl, toast]);
+  }, [allItems, currentQueryFromUrl, toast]); // allItems dep is important here
 
 
   useEffect(() => {
-    // This effect ensures displayedItems updates if allItems or visibleItemCount changes
     const activeItems = allItems.filter(item => {
         return item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true;
     });
-    if(allItems.length !== activeItems.length) {
-        // If allItems contained ended auctions, update allItems to reflect only active ones
-        // This can happen if background fetches complete with items that ended in the meantime
+    if (allItems.length !== activeItems.length) {
         setAllItems(activeItems); 
     }
     setDisplayedItems(activeItems.slice(0, visibleItemCount));
@@ -412,7 +463,8 @@ function AuctionsPageContent() {
     ? `Try adjusting your search for "${currentQueryFromUrl}".`
     : "No global curated auctions available right now. Check back later or try a specific search!";
   
-  if (allItems.length === 0 && !isLoading && !error && currentQueryFromUrl === '') {
+  const activeItemsForNoMessage = allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true);
+  if (activeItemsForNoMessage.length === 0 && !isLoading && !error && currentQueryFromUrl === '') {
       noItemsDescription = `We couldn't find any curated auctions. Try a specific search or check back!`;
   }
 
@@ -434,13 +486,13 @@ function AuctionsPageContent() {
           </Alert>
         )}
 
-        {isLoading && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} />}
+        {isLoading && displayedItems.length === 0 && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} /> }
 
-        {!isLoading && displayedItems.length === 0 && !error && (
+        {!isLoading && displayedItems.length === 0 && activeItemsForNoMessage.length === 0 && !error && (
            <NoItemsMessage title={noItemsTitle} description={noItemsDescription} />
         )}
 
-        {!isLoading && displayedItems.length > 0 && (
+        {displayedItems.length > 0 && (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
               {displayedItems.map(item => (
@@ -452,9 +504,7 @@ function AuctionsPageContent() {
                 />
               ))}
             </div>
-            {/* Show Load More if there are more items in allItems than currently displayed,
-                AND those items are active (not ended) */}
-            {allItems.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : true).length > displayedItems.length && (
+            {activeItemsForNoMessage.length > displayedItems.length && (
               <div className="text-center">
                 <Button onClick={handleLoadMore} size="lg" variant="outline">
                   <ShoppingBag className="mr-2 h-5 w-5" /> Load More Auctions
@@ -462,6 +512,12 @@ function AuctionsPageContent() {
               </div>
             )}
           </>
+        )}
+         {isLoading && displayedItems.length > 0 && (
+            <div className="text-center py-4 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin inline mr-2" />
+                Loading more items...
+            </div>
         )}
       </main>
       <footer className="sticky bottom-0 z-10 h-16 flex items-center text-center border-t border-border/40 bg-background/60 backdrop-blur-lg text-sm text-muted-foreground">
@@ -489,3 +545,4 @@ export default function AuctionsPage() {
     </Suspense>
   );
 }
+
