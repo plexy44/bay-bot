@@ -17,6 +17,7 @@ export interface BayBotItem {
   endTime?: string; // ISO date string, for auctions
   timeLeft?: string; // Human-readable time left, for auctions
   bidCount?: number; // For auctions
+  rarityScore?: number; // Optional Rarity score, can be for deals (via analysis) or auctions (via qualification)
   // UI specific
   'data-ai-hint'?: string; // For placeholder image search hint
 }
