@@ -86,7 +86,7 @@ function HomePageContent() {
         sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
       }
 
-      console.log(`[HomePage loadItems] Curated deals: No valid cache. Fetching fresh. Target: ${MIN_DESIRED_CURATED_ITEMS} items.`);
+      console.log(`[HomePage loadItems] Curated deals: No valid cache. Fetching fresh. Target: ${MIN_DESIRED_CURATED_ITEMS} items from up to ${MAX_CURATED_FETCH_ATTEMPTS} keywords.`);
       setIsRanking(true);
 
       try {
@@ -94,7 +94,7 @@ function HomePageContent() {
         const resolvedKeywords = await Promise.all(keywordPromises);
         const uniqueRandomKeywords = Array.from(new Set(resolvedKeywords.filter(kw => kw && kw.trim() !== '')));
         
-        console.log(`[HomePage loadItems] Curated deals: Using ${uniqueRandomKeywords.length} resolved keywords: ${uniqueRandomKeywords.join(', ')}`);
+        console.log(`[HomePage loadItems] Curated deals: Using ${uniqueRandomKeywords.length} resolved unique keywords: ${uniqueRandomKeywords.join(', ')}`);
 
         if (uniqueRandomKeywords.length === 0) {
           console.warn("[HomePage loadItems] Curated deals: No valid keywords generated after resolving promises. Aborting fetch.");
@@ -102,11 +102,15 @@ function HomePageContent() {
         }
         
         const fetchedBatchesPromises = uniqueRandomKeywords.map(kw =>
-          fetchItems('deal', kw, true)
+          fetchItems('deal', kw, true) // isGlobalCuratedRequest = true
         );
-        const fetchedBatches = await Promise.all(fetchedBatchesPromises);
+        const fetchedBatchesResults = await Promise.allSettled(fetchedBatchesPromises);
         
-        const consolidatedItems = fetchedBatches.flat();
+        const successfulFetches = fetchedBatchesResults
+          .filter(result => result.status === 'fulfilled')
+          .map(result => (result as PromiseFulfilledResult<BayBotItem[]>).value);
+
+        const consolidatedItems = successfulFetches.flat();
         const uniqueConsolidatedItemsMap = new Map<string, BayBotItem>();
         consolidatedItems.forEach(item => {
           if (!uniqueConsolidatedItemsMap.has(item.id)) {
@@ -114,7 +118,7 @@ function HomePageContent() {
           }
         });
         const uniqueConsolidatedItems = Array.from(uniqueConsolidatedItemsMap.values());
-        console.log(`[HomePage loadItems] Curated deals: Fetched ${uniqueConsolidatedItems.length} unique items from eBay across keywords.`);
+        console.log(`[HomePage loadItems] Curated deals: Fetched ${uniqueConsolidatedItems.length} unique items from eBay across ${successfulFetches.length} successful keyword fetches.`);
 
         if (uniqueConsolidatedItems.length > 0) {
           const aiQualifiedAndRankedItems: BayBotItem[] = await rankDealsAI(uniqueConsolidatedItems, "general curated deals");
@@ -254,51 +258,91 @@ function HomePageContent() {
   }, [router]);
 
   const handleLogoClick = useCallback(async () => {
-    console.log('[HomePage handleLogoClick] Logo clicked. Clearing caches and preparing for background auction refresh.');
+    console.log('[HomePage handleLogoClick] Logo clicked. Clearing caches and preparing for background curated content refresh.');
     sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
     sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
-    setInputValue('');
+    setInputValue(''); // Clear search input on UI
 
+    // Start background refresh tasks
     (async () => {
       try {
-        console.log('[HomePage handleLogoClick] Starting background curated auctions fetch...');
-        const backgroundKeywordPromises = Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm());
-        const resolvedBackgroundKeywords = await Promise.all(backgroundKeywordPromises);
-        const uniqueBackgroundKeywords = Array.from(new Set(resolvedBackgroundKeywords.filter(kw => kw && kw.trim() !== '')));
+        console.log('[HomePage handleLogoClick] Starting background curated content fetch (deals & auctions)...');
+        const keywordPromises = Array.from({ length: MAX_CURATED_FETCH_ATTEMPTS }, () => getRandomPopularSearchTerm());
+        const resolvedKeywords = await Promise.all(keywordPromises);
+        const uniqueBackgroundKeywords = Array.from(new Set(resolvedKeywords.filter(kw => kw && kw.trim() !== '')));
 
         if (uniqueBackgroundKeywords.length === 0) {
-          console.warn('[HomePage handleLogoClick] Background task: No valid keywords for curated auctions. Aborting.');
+          console.warn('[HomePage handleLogoClick] Background task: No valid keywords for curated content. Aborting.');
           return;
         }
-        
-        const backgroundFetchedBatchesPromises = uniqueBackgroundKeywords.map(kw =>
-          fetchItems('auction', kw, true)
-        );
-        const backgroundFetchedBatches = await Promise.all(backgroundFetchedBatchesPromises);
-        
-        const consolidatedBackgroundItems = backgroundFetchedBatches.flat();
-        const uniqueConsolidatedBackgroundMap = new Map<string, BayBotItem>();
-        consolidatedBackgroundItems.forEach(item => {
-          if (!uniqueConsolidatedBackgroundMap.has(item.id)) {
-            uniqueConsolidatedBackgroundMap.set(item.id, item);
+        console.log(`[HomePage handleLogoClick] Background task: Using ${uniqueBackgroundKeywords.length} unique keywords: ${uniqueBackgroundKeywords.join(', ')}`);
+
+        // Task for deals
+        const dealsTask = async () => {
+          try {
+            const dealBatchesPromises = uniqueBackgroundKeywords.map(kw => fetchItems('deal', kw, true));
+            const dealBatchesResults = await Promise.allSettled(dealBatchesPromises);
+            const successfulDealFetches = dealBatchesResults
+              .filter(result => result.status === 'fulfilled')
+              .map(result => (result as PromiseFulfilledResult<BayBotItem[]>).value);
+            
+            const consolidatedDeals = successfulDealFetches.flat();
+            const uniqueDealsMap = new Map<string, BayBotItem>();
+            consolidatedDeals.forEach(item => { if (!uniqueDealsMap.has(item.id)) uniqueDealsMap.set(item.id, item); });
+            const uniqueDeals = Array.from(uniqueDealsMap.values());
+
+            if (uniqueDeals.length > 0) {
+              const aiRankedDeals = await rankDealsAI(uniqueDeals, "general curated deals background refresh");
+              sessionStorage.setItem(CURATED_DEALS_CACHE_KEY, JSON.stringify({ items: aiRankedDeals, timestamp: Date.now() }));
+              console.log(`[HomePage handleLogoClick] Background task: Saved ${aiRankedDeals.length} AI-ranked curated deals to sessionStorage.`);
+              toast({ title: "Curated Deals Refreshed", description: `${aiRankedDeals.length} AI-ranked deals cached.` });
+            } else {
+              console.log('[HomePage handleLogoClick] Background task: No curated deals found to AI rank or cache.');
+            }
+          } catch (dealsError) {
+            console.error('[HomePage handleLogoClick] Background task error (Deals):', dealsError);
+            toast({ title: "Deals Refresh Failed", description: "Could not refresh curated deals.", variant: "destructive" });
           }
-        });
-        const finalBackgroundAuctions = Array.from(uniqueConsolidatedBackgroundMap.values());
-          
-        if (finalBackgroundAuctions.length > 0) {
-          sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
-          console.log(`[HomePage handleLogoClick] Background task: Saved ${finalBackgroundAuctions.length} curated auctions to sessionStorage (no AI).`);
-          toast({ title: "Curated Auctions Refreshed", description: "New set of curated auctions cached (server-processed)." });
-        } else {
-          console.log('[HomePage handleLogoClick] Background task: No curated auctions found/qualified to cache.');
-        }
+        };
+
+        // Task for auctions
+        const auctionsTask = async () => {
+          try {
+            const auctionBatchesPromises = uniqueBackgroundKeywords.map(kw => fetchItems('auction', kw, true));
+            const auctionBatchesResults = await Promise.allSettled(auctionBatchesPromises);
+            const successfulAuctionFetches = auctionBatchesResults
+              .filter(result => result.status === 'fulfilled')
+              .map(result => (result as PromiseFulfilledResult<BayBotItem[]>).value);
+
+            const consolidatedAuctions = successfulAuctionFetches.flat();
+            const uniqueAuctionsMap = new Map<string, BayBotItem>();
+            consolidatedAuctions.forEach(item => { if (!uniqueAuctionsMap.has(item.id)) uniqueAuctionsMap.set(item.id, item); });
+            const finalBackgroundAuctions = Array.from(uniqueAuctionsMap.values());
+              
+            if (finalBackgroundAuctions.length > 0) {
+              sessionStorage.setItem(CURATED_AUCTIONS_CACHE_KEY, JSON.stringify({ items: finalBackgroundAuctions, timestamp: Date.now() }));
+              console.log(`[HomePage handleLogoClick] Background task: Saved ${finalBackgroundAuctions.length} curated auctions (server-processed) to sessionStorage.`);
+              toast({ title: "Curated Auctions Refreshed", description: `${finalBackgroundAuctions.length} server-processed auctions cached.` });
+            } else {
+              console.log('[HomePage handleLogoClick] Background task: No curated auctions found/qualified to cache.');
+            }
+          } catch (auctionsError) {
+            console.error('[HomePage handleLogoClick] Background task error (Auctions):', auctionsError);
+            toast({ title: "Auctions Refresh Failed", description: "Could not refresh curated auctions.", variant: "destructive" });
+          }
+        };
+
+        // Run both tasks
+        await Promise.allSettled([dealsTask(), auctionsTask()]);
+        console.log('[HomePage handleLogoClick] Background tasks for deals and auctions completed (or failed).');
+
       } catch (bgError) {
-        console.error('[HomePage handleLogoClick] Error in background auction caching:', bgError);
-        toast({ title: "Background Refresh Failed", description: "Could not refresh curated auctions in background.", variant: "destructive" });
+        console.error('[HomePage handleLogoClick] General error in background curated content refresh setup:', bgError);
+        // This top-level catch might be for errors in keyword generation or Promise.allSettled itself.
       }
     })();
 
-    router.push('/'); 
+    router.push('/'); // Navigate to homepage immediately
   }, [router, toast]);
 
 
@@ -395,3 +439,4 @@ export default function HomePage() {
     </Suspense>
   );
 }
+
