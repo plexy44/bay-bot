@@ -129,7 +129,7 @@ export const MIN_SELLER_REPUTATION_THRESHOLD = 80; // Minimum seller reputation 
 export const MIN_DEAL_DISCOUNT_THRESHOLD = 5; // Minimum discount percentage for a deal to be considered (e.g., 5%)
 
 export const MIN_DESIRED_CURATED_ITEMS = 16;
-export const MAX_CURATED_FETCH_ATTEMPTS = 3;
+export const MAX_CURATED_FETCH_ATTEMPTS = 3; // Max keywords for a single curated fetch batch
 export const MIN_AI_QUALIFIED_ITEMS_THRESHOLD = 6;
 
 export const CURATED_DEALS_CACHE_KEY = 'cachedCuratedDeals';

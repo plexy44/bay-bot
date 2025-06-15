@@ -16,8 +16,8 @@ export default function TermsAndConditionsPage() {
   };
 
   const handleLogoClick = useCallback(() => {
-    sessionStorage.removeItem('cachedCuratedDeals');
-    sessionStorage.removeItem('cachedCuratedAuctions');
+    sessionStorage.removeItem(CURATED_DEALS_CACHE_KEY);
+    sessionStorage.removeItem(CURATED_AUCTIONS_CACHE_KEY);
     router.push('/');
   }, [router]);
 
@@ -62,5 +62,3 @@ export default function TermsAndConditionsPage() {
     </div>
   );
 }
-
-    
