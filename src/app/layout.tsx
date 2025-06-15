@@ -1,5 +1,6 @@
 
 import type {Metadata} from 'next';
+import Script from 'next/script'; // Import next/script
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster";
 import { Inter, Space_Grotesk } from 'next/font/google';
@@ -29,8 +30,9 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={`${inter.variable} ${spaceGrotesk.variable}`}>
       <head>
-        {/* Removed direct font links, next/font handles this */}
+        {/* Theme switcher script */}
         <script
+          id="theme-switcher-script"
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
@@ -64,10 +66,25 @@ export default function RootLayout({
             `,
           }}
         />
-        <script dangerouslySetInnerHTML={{ __html: `window._epn = {campaign: 5339112633};` }} />
-        <script src="https://epnt.ebay.com/static/epn-smart-tools.js"></script>
-        <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7132522800049597"
-     crossOrigin="anonymous"></script>
+        {/* EPN Campaign ID - must be inline before epn-smart-tools.js */}
+        <script
+          id="epn-campaign-id-script"
+          dangerouslySetInnerHTML={{ __html: `window._epn = {campaign: 5339112633};` }}
+        />
+        {/* EPN Smart Tools */}
+        <Script
+          id="epn-smart-tools"
+          src="https://epnt.ebay.com/static/epn-smart-tools.js"
+          strategy="afterInteractive"
+        />
+        {/* Google AdSense */}
+        <Script
+          id="adsbygoogle-script"
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7132522800049597"
+          crossOrigin="anonymous"
+          strategy="lazyOnload"
+          async
+        />
       </head>
       <body className="font-body antialiased min-h-screen flex flex-col bg-background text-foreground">
         {children}
