@@ -107,7 +107,7 @@ function AuctionsPageContent() {
           if (activeCachedItems.length > 0) {
             console.log(`[AuctionsPage loadItems] Found ${activeCachedItems.length} active items in fresh sessionStorage for key "${currentCacheKey}".`);
             processedItemsForState = activeCachedItems;
-            overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : ""} Auctions`, description: `Displaying previously fetched active auctions${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
+            overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : "Searched"} Auctions`, description: `Displaying previously fetched active auctions${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
           } else {
             sessionStorage.removeItem(currentCacheKey);
             console.log(`[AuctionsPage loadItems] Cache for key "${currentCacheKey}" had no active items or was stale. Cleared.`);
@@ -188,7 +188,7 @@ function AuctionsPageContent() {
             processedItemsForState = aiQualifiedAuctions;
 
             if (aiQualifiedAuctions.length > 0) {
-              overallToastMessage = { title: "Auctions Found & Qualified", description: `Displaying ${aiQualifiedAuctions.length} AI-qualified auctions for "${queryToLoad}".` };
+              overallToastMessage = { title: "Searched Auctions: AI Qualified", description: `Displaying ${aiQualifiedAuctions.length} AI-qualified auctions for "${queryToLoad}".` };
               if (aiQualifiedAuctions.length < activeFetchedItems.length) {
                 console.log(`[AuctionsPage loadItems] AI qualified ${aiQualifiedAuctions.length} out of ${activeFetchedItems.length} active fetched auctions for query "${queryToLoad}".`);
               }
@@ -659,4 +659,3 @@ export default function AuctionsPage() {
     </Suspense>
   );
 }
-```
