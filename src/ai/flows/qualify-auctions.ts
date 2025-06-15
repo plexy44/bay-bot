@@ -30,7 +30,7 @@ const AuctionSchema = z.object({
     .max(100)
     .describe(
       'A score from 0-100 indicating item rarity. Lower for common, mass-produced. Higher for vintage, limited editions, specific configurations, or exceptional deals on popular items making them scarce at that price.'
-    ).optional(), // Optional because AI might not always provide it, or it's added by this flow.
+    ).optional(),
 });
 
 export type AIAuction = z.infer<typeof AuctionSchema>;
@@ -54,11 +54,10 @@ export async function qualifyAuctions(
         return [];
     }
 
-    // Map BayBotItem to AIAuction, omitting rarityScore initially as AI will provide it
     const aiAuctionsInput: Omit<AIAuction, 'rarityScore'>[] = baybotAuctions.map(item => ({
         id: item.id,
         title: item.title,
-        price: item.price, // Current bid
+        price: item.price,
         sellerReputation: item.sellerReputation,
         sellerFeedbackScore: item.sellerFeedbackScore || 0,
         imageUrl: item.imageUrl,
@@ -79,34 +78,37 @@ export async function qualifyAuctions(
                 const originalBaybotAuction = baybotAuctionMap.get(aiAuction.id);
                 if (originalBaybotAuction) {
                     return {
-                        ...originalBaybotAuction, // Spread original BayBotItem
-                        rarityScore: aiAuction.rarityScore, // Add/overwrite rarityScore from AI
+                        ...originalBaybotAuction,
+                        rarityScore: aiAuction.rarityScore,
                     };
                 }
-                return null; // Should not happen if AI returns valid IDs
+                return null; 
             })
             .filter(Boolean) as BayBotItem[];
         
-        if (qualifiedAiAuctionsWithRarity.length !== baybotAuctions.length && qualifiedAiAuctionsWithRarity.length > 0) {
-             console.log(`[qualifyAuctions entry] AI flow returned ${qualifiedAiAuctionsWithRarity.length} auctions out of ${baybotAuctions.length} input auctions for query "${query}".`);
+        if (qualifiedAiAuctionsWithRarity.length !== baybotAuctions.length && qualifiedAiAuctionsWithRarity.length > 0 && reorderedBaybotAuctions.length > 0) {
+             console.log(`[qualifyAuctions entry] AI flow returned ${reorderedBaybotAuctions.length} qualified BayBot auctions out of ${baybotAuctions.length} input auctions for query "${query}".`);
+        } else if (qualifiedAiAuctionsWithRarity.length === 0 && baybotAuctions.length > 0) {
+             console.log(`[qualifyAuctions entry] AI flow returned 0 qualified auctions for query "${query}" from ${baybotAuctions.length} inputs. The page will show no AI-qualified auctions. Flow result count: ${qualifiedAiAuctionsWithRarity.length}, Mapped BayBot count: ${reorderedBaybotAuctions.length}`);
         }
+
 
         return reorderedBaybotAuctions;
 
     } catch (e) {
-        console.error(`[qualifyAuctions entry] Error calling qualifyAuctionsFlow for query "${query}". Returning original BayBot auction list. Error:`, e);
-        return baybotAuctions;
+        console.error(`[qualifyAuctions entry] Error calling qualifyAuctionsFlow for query "${query}". Returning original BayBot auction list as fallback. Error:`, e);
+        return baybotAuctions; // Fallback to original list on error
     }
 }
 
 
 const qualifyAuctionsPrompt = ai.definePrompt({
-  name: 'qualifyAndRankAuctionsWithRarityPrompt', // Renamed for clarity
+  name: 'qualifyAndRankAuctionsWithRarityPrompt',
   input: {
     schema: QualifyAuctionsInputSchema,
   },
   output: {
-    schema: QualifyAuctionsOutputSchema, // Expecting an array of full AIAuction objects with rarity
+    schema: QualifyAuctionsOutputSchema, 
   },
   prompt: `You are an expert shopping assistant specializing in eBay auctions. The following list of auctions has already been pre-filtered and sorted by the system (typically by ending soonest).
 Your task is to QUALIFY, RE-RANK these auctions, and ASSIGN a Rarity Score (0-100) to each qualified auction.
@@ -172,7 +174,7 @@ Example response format if no auctions qualified: []`,
 
 const qualifyAuctionsFlow = ai.defineFlow(
   {
-    name: 'qualifyAuctionsFlowWithRarity', // Renamed for clarity
+    name: 'qualifyAuctionsFlowWithRarity',
     inputSchema: QualifyAuctionsInputSchema,
     outputSchema: QualifyAuctionsOutputSchema,
   },
@@ -187,20 +189,25 @@ const qualifyAuctionsFlow = ai.defineFlow(
 
       if (!qualifiedAuctionsWithRarity) {
           console.warn(
-          `[qualifyAuctionsFlowWithRarity] AI qualification prompt did not return a valid output (was null/undefined). Query: "${input.query}". Auctions count: ${input.auctions.length}. Falling back to original auction list order (without rarity).`
+          `[qualifyAuctionsFlowWithRarity] AI qualification prompt did not return a valid output (was null/undefined). Query: "${input.query}". Auctions count: ${input.auctions.length}. Falling back to original auction list (without rarity).`
           );
-          // Fallback: return original auctions but without rarity
           return input.auctions.map(auc => ({...auc, rarityScore: undefined}));
       }
       
-      if (qualifiedAuctionsWithRarity.length === 0) {
-        console.log(
-          `[qualifyAuctionsFlowWithRarity] AI qualification prompt returned an empty list (0 qualified auctions). Query: "${input.query}". Auctions count: ${input.auctions.length}. Returning empty list from flow.`
+      if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length > 0) {
+        console.warn(
+          `[qualifyAuctionsFlowWithRarity] AI qualification prompt returned an empty list (0 qualified auctions) from ${input.auctions.length} inputs. Query: "${input.query}". Returning original items without AI qualification/rarity as a fallback.`
+        );
+        return input.auctions.map(auc => ({...auc, rarityScore: undefined})); // Fallback if AI returns [] but we had items
+      }
+      if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length === 0) {
+         console.log(
+          `[qualifyAuctionsFlowWithRarity] AI qualification prompt received 0 input auctions and returned 0. Query: "${input.query}". Returning empty list from flow.`
         );
         return [];
       }
 
-      // Validate that IDs returned by AI are from the original input set
+
       const originalAuctionIds = new Set(input.auctions.map(auc => auc.id));
       const validatedAuctions = qualifiedAuctionsWithRarity.filter(auc => {
         if (!originalAuctionIds.has(auc.id)) {
@@ -209,7 +216,7 @@ const qualifyAuctionsFlow = ai.defineFlow(
         }
         if (typeof auc.rarityScore !== 'number' || auc.rarityScore < 0 || auc.rarityScore > 100) {
             console.warn(`[qualifyAuctionsFlowWithRarity] AI returned auction ID "${auc.id}" with invalid rarityScore: ${auc.rarityScore}. Setting to undefined.`);
-            auc.rarityScore = undefined; // Or a default like 0
+            auc.rarityScore = undefined;
         }
         return true;
       });
@@ -227,3 +234,4 @@ const qualifyAuctionsFlow = ai.defineFlow(
     }
   }
 );
+
