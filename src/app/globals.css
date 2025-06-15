@@ -47,49 +47,53 @@ body {
   }
 
   .dark {
-    /* DealScope Dark Theme - Matrix Inspired */
-    --background: 220 15% 5%;      /* Very dark, slightly desaturated blue/grey */
-    --foreground: 120 100% 50%;    /* Matrix Green for text */
+    /* DealScope Dark Theme - PRD Aligned */
+    --background: 222 83% 4.9%;      /* #020817 Very dark blue */
+    --foreground: 210 40% 98%;       /* #f8fafc Light gray (for text) */
 
-    --card: 220 15% 8%;            /* Slightly lighter than background for depth */
-    --card-foreground: 120 100% 50%; /* Matrix Green text on cards */
+    --card: 215.4 39.3% 11.6%;    /* #0f172a Darker blue/slate for card backgrounds */
+    --card-foreground: hsl(var(--foreground)); /* Light gray text on cards */
 
-    --popover: 220 15% 8%;          /* Consistent with card */
-    --popover-foreground: 120 100% 50%; /* Consistent with card foreground */
+    --popover: hsl(var(--card));      /* Popovers same as cards */
+    --popover-foreground: hsl(var(--card-foreground));
 
-    --primary: 120 70% 35%;        /* Darker, rich Matrix Green for primary button backgrounds */
-    --primary-foreground: 120 80% 90%; /* Very light green/white text on primary green buttons */
+    /* For primary interactive elements like buttons, using the light gray from PRD for their background,
+       and dark blue (background color) for their text to ensure contrast.
+    */
+    --primary: 210 40% 98%;           /* #f8fafc Light gray */
+    --primary-foreground: 222 83% 4.9%;/* #020817 Dark blue text on light gray primary */
 
-    --secondary: 220 10% 12%;      /* Dark grey for secondary button backgrounds or areas */
-    --secondary-foreground: 120 80% 65%; /* Lighter Matrix green for text on these secondary areas */
+    /* Secondary elements use the dark gray-blue */
+    --secondary: 215 28% 17.1%;      /* #1e293b Dark gray-blue */
+    --secondary-foreground: 210 40% 98%; /* Light gray text on secondary */
 
-    --muted: 220 10% 10%;          /* Dark grey for less important backgrounds/dividers */
-    --muted-foreground: 120 70% 40%; /* Dimmer Matrix green for muted text */
+    --muted: hsl(var(--secondary));     /* Use secondary color for muted backgrounds */
+    --muted-foreground: 210 40% 80%;  /* Slightly dimmer light gray for muted text */
 
-    --accent: 120 80% 45%;          /* A brighter green accent for hover or specific highlights */
-    --accent-foreground: 220 15% 95%; /* Very light, almost white text if on this brighter green accent */
+    --accent: hsl(var(--secondary));    /* Use secondary for accent as per PRD for "muted elements and subtle highlights" */
+    --accent-foreground: hsl(var(--foreground)); /* Light gray text on accent */
 
-    --destructive: 0 70% 50%;       /* Standard vibrant red for destructive actions */
-    --destructive-foreground: 0 0% 98%; /* Light text on red */
+    --destructive: 0 63% 31%;        /* Standard dark theme destructive red */
+    --destructive-foreground: 0 0% 98%; /* Light text on destructive */
 
-    --border: 120 50% 25%;          /* Dark green for borders, subtle */
-    --input: 220 10% 9%;            /* Very dark input backgrounds */
-    --ring: 120 100% 55%;           /* Bright Matrix green for focus rings */
+    --border: 215 28% 25%;            /* A slightly lighter version of accent for borders */
+    --input: 215 28% 12%;             /* Darker than card for input fields */
+    --ring: 210 40% 90%;              /* A ring color based on primary but less intense */
 
-    --chart-1: 120 70% 50%; /* Matrix Green shades for charts */
-    --chart-2: 120 60% 40%;
-    --chart-3: 120 80% 60%;
-    --chart-4: 120 50% 30%;
-    --chart-5: 120 90% 70%;
+    --chart-1: 210 40% 80%; /* Adjusted for dark theme visibility */
+    --chart-2: 215 30% 65%;
+    --chart-3: 220 35% 70%;
+    --chart-4: 210 45% 75%;
+    --chart-5: 215 50% 85%;
 
-    --sidebar-background: 220 15% 7%;
-    --sidebar-foreground: 120 90% 60%;
-    --sidebar-primary: 120 70% 40%;
-    --sidebar-primary-foreground: 120 80% 90%;
-    --sidebar-accent: 120 50% 20%;
-    --sidebar-accent-foreground: 120 90% 70%;
-    --sidebar-border: 120 50% 15%;
-    --sidebar-ring: 120 100% 55%;
+    --sidebar-background: hsl(var(--background));
+    --sidebar-foreground: hsl(var(--foreground));
+    --sidebar-primary: hsl(var(--primary));
+    --sidebar-primary-foreground: hsl(var(--primary-foreground));
+    --sidebar-accent: hsl(var(--accent));
+    --sidebar-accent-foreground: hsl(var(--accent-foreground));
+    --sidebar-border: hsl(var(--border));
+    --sidebar-ring: hsl(var(--ring));
   }
 }
 
@@ -149,14 +153,14 @@ body {
 
 /* Dark Mode DealScope Tabs Customization */
 .dark .dealscope-tabs-list {
-  background-color: hsl(var(--card)) !important; /* Dark grey bg, e.g. hsl(220 15% 8%) */
-  border: 1px solid hsl(var(--primary)) !important; /* Green border, e.g. hsl(120 70% 35%) */
+  background-color: hsl(var(--card)) !important; /* e.g. #0f172a */
+  border: 1px solid hsl(var(--primary)) !important; /* e.g. #f8fafc (light gray) for border */
   border-radius: 0.375rem !important;
 }
 
 .dark .dealscope-tabs-trigger {
-  background-color: hsl(var(--card)) !important; /* Dark bg, matches TabsList, e.g. hsl(220 15% 8%) */
-  color: hsl(var(--foreground)) !important; /* Matrix Green text/icons, e.g. hsl(120 100% 50%) */
+  background-color: hsl(var(--card)) !important; /* e.g. #0f172a */
+  color: hsl(var(--foreground)) !important; /* e.g. #f8fafc (light gray) */
   border: none !important;
   box-shadow: none !important;
   opacity: 1 !important;
@@ -164,8 +168,8 @@ body {
 }
 
 .dark .dealscope-tabs-trigger[data-state=active] {
-  background-color: hsl(var(--accent)) !important; /* Bright green accent bg, e.g. hsl(120 80% 45%) */
-  color: hsl(var(--background)) !important; /* Very dark text/icons, e.g. hsl(220 15% 5%) */
+  background-color: hsl(var(--primary)) !important; /* e.g. #f8fafc (light gray) */
+  color: hsl(var(--primary-foreground)) !important; /* e.g. #020817 (dark blue) */
   border: none !important;
   box-shadow: none !important;
 }
@@ -185,15 +189,15 @@ body {
 @keyframes pulse-glass {
   0%, 100% {
     opacity: 0.7;
-    box-shadow: 0 0 5px hsla(var(--muted), 0.1), inset 0 0 3px hsla(var(--muted), 0.05);
+    box-shadow: 0 0 5px hsla(var(--muted-foreground), 0.1), inset 0 0 3px hsla(var(--muted-foreground), 0.05);
   }
   50% {
     opacity: 1;
-    box-shadow: 0 0 12px hsla(var(--muted), 0.2), inset 0 0 8px hsla(var(--muted), 0.1);
+    box-shadow: 0 0 12px hsla(var(--muted-foreground), 0.2), inset 0 0 8px hsla(var(--muted-foreground), 0.1);
   }
 }
 .skeleton-glass {
-  @apply rounded-md border border-muted/20;
+  @apply rounded-md border border-border/20;
   background-color: hsla(var(--muted), 0.1) !important; /* hsla needs the HSL components from --muted */
   backdrop-filter: blur(3px);
   animation: pulse-glass 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
