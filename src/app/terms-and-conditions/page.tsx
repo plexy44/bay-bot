@@ -2,10 +2,11 @@
 'use client';
 
 import type React from 'react';
+import { useState, useCallback, Suspense } from 'react';
+import { useRouter } from 'next/navigation';
 import { AppHeader } from '@/components/baybot/AppHeader';
 import { AppFooter } from '@/components/dealscope/AppFooter';
-import { useRouter } from 'next/navigation';
-import { useState, useCallback } from 'react';
+import { CURATED_DEALS_CACHE_KEY, CURATED_AUCTIONS_CACHE_KEY } from '@/lib/constants';
 
 export default function TermsAndConditionsPage() {
   const router = useRouter();
@@ -23,13 +24,15 @@ export default function TermsAndConditionsPage() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <AppHeader
-        searchInputValue={inputValue}
-        onSearchInputChange={setInputValue}
-        onSearchSubmit={handleSearchSubmit}
-        onLogoClick={handleLogoClick}
-        isLoading={false} 
-      />
+       <Suspense fallback={<div className="h-16 border-b border-border/40" />}>
+        <AppHeader
+          searchInputValue={inputValue}
+          onSearchInputChange={setInputValue}
+          onSearchSubmit={handleSearchSubmit}
+          onLogoClick={handleLogoClick}
+          isLoading={false}
+        />
+      </Suspense>
       <main className="flex-grow container mx-auto px-4 py-8">
         <section className="max-w-4xl mx-auto bg-card p-6 sm:p-8 rounded-lg shadow-md">
           <h1 className="text-3xl font-bold mb-6 text-foreground">Terms and Conditions</h1>
