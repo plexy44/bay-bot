@@ -99,6 +99,7 @@ export const GLOBAL_CURATED_AUCTIONS_REQUEST_MARKER = "__GLOBAL_AUCTIONS__";
 
 export const STANDARD_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 export const GLOBAL_CURATED_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+export const STALE_CACHE_THRESHOLD_FOR_SOFT_REFRESH_MS = 10 * 60 * 1000; // 10 minutes for soft refresh trigger
 
 export const EXCLUSION_KEYWORDS: string[] = [
   'box only', 'empty box', 'original box',

@@ -326,7 +326,7 @@ export const fetchItems = async (
   if (type === 'auction') {
     console.log(`[BayBot Fetch Logic] Applying AUCTION specific parameters.`);
     filterOptions.push('buyingOptions:{AUCTION}');
-    sortOption = 'endingSoonest'; // Always sort auctions by endingSoonest from API
+    sortOption = 'endingSoonest'; 
   } else { // type === 'deal'
     console.log(`[BayBot Fetch Logic] Applying DEAL specific parameters.`);
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
@@ -335,11 +335,11 @@ export const fetchItems = async (
 
     if (isGlobalCuratedRequest) {
       filterOptions.push('price:[20..]');
-      sortOption = null; // For global curated deals, let eBay's default relevance sort apply, then sort by discount post-fetch
+      sortOption = null; 
       console.log(`[BayBot Fetch Logic] Global Curated Deal: Price filter [20..], No server sort by API (will sort post-fetch).`);
-    } else { // User search for deals
+    } else { 
       filterOptions.push('price:[1..]');
-      sortOption = null; // For user-searched deals, use eBay's default relevance sort. AI will handle discount etc.
+      sortOption = null; 
       console.log(`[BayBot Fetch Logic] User Searched Deal: Price filter [1..], API Sort by eBay's default (relevance).`);
     }
   }
@@ -406,18 +406,19 @@ export const fetchItems = async (
       .map(browseItem => transformBrowseItem(browseItem, type, keywordsForApi))
       .filter((item): item is BayBotItem => item !== null);
 
+    // Logging for search term performance analysis (before client-side AI ranking)
+    console.log(`[SEARCH TERM PERFORMANCE DATA] Term: "${keywordsForApi}" | Type: ${type} | Raw eBay Items: ${rawItemCount} | Transformed Items (Pre-AI): ${transformedItems.length}`);
+    // To use this data, you would typically send it to a backend analytics service here.
+
+
     console.log(`[eBay Service Response] Transformed ${transformedItems.length} items after initial filtering for query "${keywordsForApi}".`);
 
     if (type === 'deal') {
         if (isGlobalCuratedRequest) {
-            // For global curated deals, sort by discount primarily
             transformedItems.sort((a, b) => (b.discountPercentage ?? 0) - (a.discountPercentage ?? 0));
             console.log(`[eBay Service Sort] Sorted ${transformedItems.length} global curated deals by discount percentage.`);
         }
-        // For user-searched deals, AI ranking will handle discount & relevance primarily.
-        // No explicit server-side sort here beyond what API provided (relevance)
     }
-    // Auctions are primarily sorted by 'endingSoonest' via the API.
 
     const finalItems = transformedItems.filter(item => item.type === type);
     if (finalItems.length !== transformedItems.length) {
@@ -440,5 +441,3 @@ export const fetchItems = async (
     throw new Error(`Failed to fetch eBay items due to an unknown error: ${String(error)}.`);
   }
 };
-
-    
