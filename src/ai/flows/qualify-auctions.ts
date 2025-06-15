@@ -78,7 +78,7 @@ export async function qualifyAuctions(
                 if (originalDealScopeAuction) {
                     return {
                         ...originalDealScopeAuction,
-                        rarityScore: aiAuction.rarityScore,
+                        rarityScore: aiAuction.rarityScore, // Rarity score from AI applied here
                     };
                 }
                 return null;
@@ -89,10 +89,12 @@ export async function qualifyAuctions(
              console.warn(`[qualifyAuctions entry] AI flow returned 0 qualified auctions for query "${query}" from ${dealscopeAuctions.length} inputs. The page will show NO AI-qualified auctions as AI explicitly returned empty. Input count: ${aiAuctionsInput.length}, AI output count: ${qualifiedAiAuctionsWithRarity.length}`);
         }
 
+
         return reorderedDealScopeAuctions;
 
     } catch (e) {
-        console.error(`[qualifyAuctions entry] Error calling qualifyAuctionsFlow for query "${query}". Returning original DealScope auction list as fallback. Error:`, e);
+        console.error(`[qualifyAuctions entry] Error calling qualifyAuctionsFlow for query "${query}". Returning original DealScope auction list as fallback (no AI rarity scores). Error:`, e);
+        // Fallback: return original items without AI rarity score
         return dealscopeAuctions.map(auc => ({ ...auc, rarityScore: undefined }));
     }
 }
@@ -162,9 +164,9 @@ Example response format for 1 qualified auction:
 ]
 Example response format if no auctions qualified: []`,
   helpers: {
-    condition_or_default: (value: string | undefined, defaultValue: string) => value || defaultValue,
-    timeLeft_or_default: (value: string | undefined, defaultValue: string) => value || defaultValue,
-    bidCount_or_default: (value: number | undefined, defaultValue: number) => value ?? defaultValue,
+    condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
+    timeLeft_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
+    bidCount_or_default: (value: number | undefined, defaultValue: number): number => value ?? defaultValue,
   }
 });
 
@@ -186,14 +188,14 @@ const qualifyAuctionsFlow = ai.defineFlow(
           console.warn(
           `[qualifyAuctionsFlow] AI prompt returned null/undefined. Query: "${input.query}". Input count: ${input.auctions.length}. Falling back to original list (no rarity).`
           );
-          return input.auctions.map(auc => ({...auc, rarityScore: undefined}));
+          return input.auctions.map(auc => ({...auc, rarityScore: undefined, price: auc.price || 0 }));
       }
 
       if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length > 0) {
-        console.warn(
-          `[qualifyAuctionsFlow] AI prompt returned an empty list (0 qualified auctions) from ${input.auctions.length} inputs for query "${input.query}". Using original items as fallback.`
-        );
-        return input.auctions.map(auc => ({...auc, rarityScore: undefined}));
+        // AI explicitly returned empty, indicating no items were qualified.
+        // This is a valid response. No console warning needed here for this specific case.
+        // console.log(`[qualifyAuctionsFlow] AI prompt returned an empty list (0 qualified auctions) from ${input.auctions.length} inputs for query "${input.query}".`);
+        return [];
       }
       if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length === 0) {
         return [];
@@ -220,7 +222,8 @@ const qualifyAuctionsFlow = ai.defineFlow(
 
     } catch (e) {
       console.error(`[qualifyAuctionsFlow] CRITICAL FAILURE for query "${input.query}", returning original list (no rarity). Error:`, e);
-      return input.auctions.map(auc => ({...auc, rarityScore: undefined}));
+      // Fallback: return original items without AI rarity score and ensure price is a number
+      return input.auctions.map(auc => ({...auc, rarityScore: undefined, price: auc.price || 0 }));
     }
   }
 );

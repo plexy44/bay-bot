@@ -67,7 +67,6 @@ async function getEbayAuthToken(): Promise<string> {
         throw new Error('Failed to retrieve access_token from eBay OAuth response.');
     }
     ebayToken = { ...tokenData, fetched_at: Date.now() };
-    // console.log('[eBay Service Auth] Successfully fetched new eBay OAuth token.');
     return ebayToken!.access_token;
   } catch (error) {
     console.error('[eBay Service Auth] Detailed error during OAuth token fetch:', error);
@@ -111,7 +110,7 @@ interface BrowseApiItemSummary {
   itemId: string;
   title: string;
   image?: { imageUrl: string };
-  price: { value: string; currency: string };
+  price?: { value: string; currency: string }; // Made price potentially undefined
   itemAffiliateWebUrl?: string;
   itemWebUrl?: string;
   shortDescription?: string;
@@ -197,9 +196,15 @@ function transformBrowseItem(
       determinedItemType = 'auction';
     }
 
+    if (!browseItem.price || typeof browseItem.price.value === 'undefined') {
+      console.warn(`[eBay Transform] Item ${browseItem.itemId} ("${browseItem.title}") is missing price information. Skipping.`);
+      return null;
+    }
+    const currentPriceValue = parseFloat(browseItem.price.value);
+
 
     const imageUrl = getHighResolutionImageUrl(browseItem.image?.imageUrl);
-    const currentPriceValue = parseFloat(browseItem.price.value);
+
 
     let originalPriceValue: number | undefined = undefined;
     let discountPercentageValue: number | undefined = undefined;
@@ -260,7 +265,6 @@ function transformBrowseItem(
 
 export async function getRandomPopularSearchTerm(): Promise<string> {
   if (curatedHomepageSearchTerms.length === 0) {
-    console.warn("[eBay Service Util] Curated homepage search terms list empty. Defaulting to 'tech deals'.");
     return "tech deals";
   }
   const randomIndex = Math.floor(Math.random() * curatedHomepageSearchTerms.length);
@@ -288,7 +292,6 @@ export const fetchItems = async (
   }
 
   if (typeof keywordsForApi !== 'string' || keywordsForApi.trim() === '') {
-    console.warn(`[DealScope Fetch] 'keywordsForApi' is empty or not a string. Query: "${query}", Type: "${type}". Returning empty.`);
     return [];
   }
 
@@ -348,7 +351,6 @@ export const fetchItems = async (
     }
 
     if (!response.ok) {
-      console.warn(`[eBay Service] API request FAILED (${response.status}). Query: "${keywordsForApi}", Type: "${type}". URL: ${browseApiUrl.toString()}. Response: ${JSON.stringify(data, null, 2)}`);
       if (data && data.itemSummaries === undefined && data.warnings && data.warnings.length > 0) {
          fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
          return [];
@@ -371,7 +373,9 @@ export const fetchItems = async (
       .map(browseItem => transformBrowseItem(browseItem, type, keywordsForApi, isGlobalCuratedRequest))
       .filter((item): item is DealScopeItem => item !== null);
 
-    console.log(`[SEARCH TERM PERFORMANCE DATA] Term: "${keywordsForApi}" | Type: ${type} | Raw eBay Items: ${rawItemCount} | Transformed Items (Pre-AI): ${transformedItems.length}`);
+    if (rawItemCount > 0 && transformedItems.length < rawItemCount) {
+      console.log(`[eBay Service] Filtered/Skipped items: Query "${keywordsForApi}", Type "${type}". Raw: ${rawItemCount}, Transformed: ${transformedItems.length}`);
+    }
 
 
     const finalItems = transformedItems.filter(item => item.type === type);
@@ -389,3 +393,4 @@ export const fetchItems = async (
     throw new Error(`Failed to fetch eBay items (unknown error): ${String(error)}.`);
   }
 };
+
