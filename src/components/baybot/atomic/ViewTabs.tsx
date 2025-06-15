@@ -1,3 +1,4 @@
+
 'use client';
 
 import type React from 'react';
@@ -28,7 +29,12 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
 
   return (
     <Tabs value={tabValue} onValueChange={handleValueChange}>
-      <TabsList className="inline-flex h-auto items-center justify-center rounded-md border border-border/40 bg-muted/30 p-0.5 shadow-sm">
+      <TabsList 
+        className={cn(
+          "baybot-tabs-list", // Added class for specific styling
+          "inline-flex h-auto items-center justify-center p-0.5 shadow-sm" // Removed default border and bg, will be handled in CSS
+        )}
+      >
         <TabsTrigger
           value="/"
           className={cn(
