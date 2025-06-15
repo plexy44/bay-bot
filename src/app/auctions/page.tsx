@@ -25,8 +25,8 @@ function AuctionsPageContent() {
     setInputValue,
     displayedItems,
     allItems,
-    isLoading,
-    isRanking,
+    isLoading, // pageIsLoading
+    isRanking, // pageIsRanking
     error,
     isAuthError,
     selectedItemForAnalysis,
@@ -52,7 +52,7 @@ function AuctionsPageContent() {
         onSearchInputChange={setInputValue}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={handleLogoClick}
-        isLoading={isLoading || isRanking}
+        isLoading={isLoading} // Changed from isLoading || isRanking
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
@@ -117,3 +117,4 @@ export default function AuctionsPage() {
     </Suspense>
   );
 }
+
