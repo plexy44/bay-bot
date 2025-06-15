@@ -133,3 +133,12 @@ export const MIN_AI_QUALIFIED_ITEMS_THRESHOLD = 6;
 
 export const CURATED_DEALS_CACHE_KEY = 'cachedCuratedDeals';
 export const CURATED_AUCTIONS_CACHE_KEY = 'cachedCuratedAuctions';
+
+// New constants for iterative initial curated deals fetch
+export const MAX_TOTAL_KEYWORDS_TO_TRY_INITIAL_DEALS = 10; // Max unique keywords for initial curated deals fetch
+export const KEYWORDS_PER_BATCH_INITIAL_DEALS = 3; // Keywords per batch in iterative initial deals fetch
+export const TARGET_RAW_ITEMS_FACTOR_FOR_AI = 2; // Fetch e.g. 2x MIN_DESIRED_CURATED_ITEMS as raw items before AI ranking
+
+// For proactive background caching
+export const KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE = 2;
+
