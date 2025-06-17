@@ -4,6 +4,7 @@
 import type React from 'react';
 import { useState, useCallback, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image'; // Import next/image
 import { AppHeader } from '@/components/baybot/AppHeader';
 import { AppFooter } from '@/components/dealscope/AppFooter';
 import { CURATED_DEALS_CACHE_KEY, CURATED_AUCTIONS_CACHE_KEY } from '@/lib/constants';
@@ -34,7 +35,17 @@ export default function TermsAndConditionsPage() {
         />
       </Suspense>
       <main className="flex-grow container mx-auto px-4 py-8">
-        <section className="max-w-4xl mx-auto bg-card p-6 sm:p-8 rounded-lg shadow-md">
+        <section className="relative max-w-4xl mx-auto bg-card p-6 sm:p-8 rounded-lg shadow-md">
+          <div className="absolute top-6 right-6 sm:top-8 sm:right-8 flex items-center space-x-2">
+            <Image 
+              src="https://placehold.co/80x30.png" // Replace with your actual eBay logo path
+              alt="eBay Logo" 
+              width={80} 
+              height={30} 
+              data-ai-hint="ebay logo" 
+            />
+            <span className="text-xs text-muted-foreground font-semibold">eBay Partner</span>
+          </div>
           <h1 className="text-3xl font-bold mb-6 text-foreground">Terms and Conditions</h1>
           <p className="mb-4 text-card-foreground">
             Welcome to DealScope! These terms and conditions outline the rules and regulations for the use of our website.
