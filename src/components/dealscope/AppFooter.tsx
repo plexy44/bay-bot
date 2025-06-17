@@ -32,13 +32,16 @@ export const AppFooter: React.FC = () => {
             className="shimmer-effect p-1.5 rounded-full hover:bg-accent/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <svg
-              className="w-6 h-6 text-primary block" // `block` to prevent extra space if inline
+              className="w-6 h-6 text-primary block"
               fill="currentColor"
               viewBox="0 0 24 24"
               xmlns="http://www.w3.org/2000/svg"
               aria-hidden="true"
             >
-              <path d="M12 2L2 7L2 17L12 22L22 17L22 7L12 2Z" stroke="hsl(var(--primary-foreground))" strokeWidth="0.5" strokeLinejoin="round"/>
+              <path
+                d="M12 2 L2 7 L2 17 L12 22 L22 17 L22 7 Z M12 6 L6 9 L6 15 L12 18 L18 15 L18 9 Z"
+                fillRule="evenodd"
+              />
             </svg>
           </a>
           <ThemeToggle />
