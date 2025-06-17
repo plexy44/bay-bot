@@ -2,8 +2,8 @@
 'use server';
 
 /**
- * @fileOverview Qualifies and re-ranks a list of pre-filtered auctions based on credibility, potential value, relevance, and assigns a rarity score.
- * The flow asks the AI to return an array of full auction objects (AIAuction) for qualified items, including the rarity score.
+ * @fileOverview Qualifies and re-ranks a list of pre-filtered auctions based on a comprehensive AI prompt.
+ * The flow asks the AI to return an array of full auction objects (AIAuction) for qualified items, including a rarity score.
  *
  * - qualifyAuctions - A function that handles the auction qualification and ranking process.
  * - QualifyAuctionsInput - The input type for the qualifyAuctions function.
@@ -36,7 +36,8 @@ const AuctionSchema = z.object({
 export type AIAuction = z.infer<typeof AuctionSchema>;
 
 const QualifyAuctionsInputSchema = z.object({
-  auctions: z.array(AuctionSchema.omit({ rarityScore: true })).describe('The list of pre-filtered and server-sorted auctions to qualify and rank. Rarity score will be added by AI.'),
+  viewType: z.literal('Auctions').describe('Indicates that the processing is for auctions.'),
+  items: z.array(AuctionSchema.omit({ rarityScore: true })).describe('The list of pre-filtered auctions to qualify, rank, and for which rarity should be scored.'),
   query: z.string().describe('The user search query for relevance checking.'),
 });
 
@@ -65,17 +66,26 @@ export async function qualifyAuctions(
         bidCount: item.bidCount,
     }));
 
-    const flowInput: QualifyAuctionsInput = { auctions: aiAuctionsInput, query };
+    const flowInput: QualifyAuctionsInput = { viewType: 'Auctions', items: aiAuctionsInput, query };
 
     try {
         const qualifiedAiAuctionsWithRarityOutput: AIAuction[] = await qualifyAuctionsFlow(flowInput);
+        
+        if (qualifiedAiAuctionsWithRarityOutput.length === 0 && dealscopeAuctions.length > 0) {
+            console.warn(`[qualifyAuctions entry] AI flow returned 0 qualified auctions for query "${query}" from ${dealscopeAuctions.length} inputs. The page will show NO AI-qualified auctions as AI explicitly returned empty.`);
+            return []; // If AI explicitly returns empty, respect that.
+        }
 
         const dealscopeAuctionMap = new Map(dealscopeAuctions.map(auction => [auction.id, auction]));
 
         const uniqueQualifiedAIAuctionsMap = new Map<string, AIAuction>();
         qualifiedAiAuctionsWithRarityOutput.forEach(aiAuction => {
-            if (!uniqueQualifiedAIAuctionsMap.has(aiAuction.id)) {
-                uniqueQualifiedAIAuctionsMap.set(aiAuction.id, aiAuction);
+            if (dealscopeAuctionMap.has(aiAuction.id)) { // Ensure AI returned valid, original items
+                if (!uniqueQualifiedAIAuctionsMap.has(aiAuction.id)) {
+                    uniqueQualifiedAIAuctionsMap.set(aiAuction.id, aiAuction);
+                }
+            } else {
+                 console.warn(`[qualifyAuctions entry] AI returned an auction ID "${aiAuction.id}" not present in the original input for query "${query}". Discarding.`);
             }
         });
         const uniqueQualifiedAIAuctions = Array.from(uniqueQualifiedAIAuctionsMap.values());
@@ -85,64 +95,40 @@ export async function qualifyAuctions(
                 const originalDealScopeAuction = dealscopeAuctionMap.get(aiAuction.id);
                 if (originalDealScopeAuction) {
                     return {
-                        ...originalDealScopeAuction,
-                        rarityScore: aiAuction.rarityScore, 
+                        ...originalDealScopeAuction, // Start with original to preserve all its properties
+                        ...aiAuction, // Overlay with AI's version (which includes rarityScore)
+                        rarityScore: aiAuction.rarityScore, // Explicitly take AI's rarity score
                     };
                 }
                 return null;
             })
             .filter(Boolean) as DealScopeItem[];
-
-        if (reorderedDealScopeAuctions.length === 0 && dealscopeAuctions.length > 0 && qualifiedAiAuctionsWithRarityOutput.length === 0) {
-             console.warn(`[qualifyAuctions entry] AI flow returned 0 qualified auctions for query "${query}" from ${dealscopeAuctions.length} inputs. The page will show NO AI-qualified auctions as AI explicitly returned empty. Input count: ${aiAuctionsInput.length}, AI output count: ${qualifiedAiAuctionsWithRarityOutput.length}`);
-        }
-
-
+        
         return reorderedDealScopeAuctions;
 
     } catch (e) {
         console.error(`[qualifyAuctions entry] Error calling qualifyAuctionsFlow for query "${query}". Returning original DealScope auction list as fallback (no AI rarity scores). Error:`, e);
-        return dealscopeAuctions.map(auc => ({ ...auc, rarityScore: undefined }));
+        return dealscopeAuctions.map(auc => ({ ...auc, rarityScore: undefined })); // Fallback
     }
 }
 
 
 const qualifyAuctionsPrompt = ai.definePrompt({
-  name: 'qualifyAndRankAuctionsWithRarityPrompt',
+  name: 'curateAndSortItemsPromptAuctions',
   input: {
     schema: QualifyAuctionsInputSchema,
   },
   output: {
     schema: QualifyAuctionsOutputSchema,
   },
-  prompt: `You are an expert shopping assistant specializing in eBay auctions. The following list of auctions has already been pre-filtered by the system.
-User Query: "{{query}}"
+  prompt: `You are an expert e-commerce curator with a deep understanding of the eBay marketplace. Your primary function is to intelligently sort and filter a provided list of items to create the most valuable and relevant view for the user. You must be precise but not overly strict, always aiming to provide a useful selection.
 
-{{#if query_is_specific query}}
-CRITICAL INSTRUCTIONS FOR SPECIFIC USER QUERY: "{{query}}"
-Your task is to RE-RANK the provided auctions based on their suitability for the user's query "{{query}}", ASSIGN a Rarity Score (0-100) to each auction, and return a list of these auctions.
-For specific queries, you should aim to include MOST, if not ALL, of the provided auctions if they are at least a REASONABLE MATCH for "{{query}}". Your main job is to SORT them effectively and assign rarity.
-*   **Relevance is Key for Ranking:** Items that are an EXACT or VERY STRONG match for "{{query}}" should be ranked highest.
-*   **Accessory Filtering:** If "{{query}}" is for a main product (e.g., 'vintage Omega watch', 'Nikon D850 camera body'), you MUST RANK accessories (e.g., watch straps, camera bags unless the query *is* for an accessory) much lower or exclude them if they are clearly not what the user is looking for.
-*   **Ranking Order AFTER Relevance:**
-    1.  Strong Relevance to "{{query}}"
-    2.  Time Sensitivity (Ending Soonest for relevant, good value items)
-    3.  Potential Value & Bidding Dynamics (Price vs. market value, bid count)
-    4.  Seller Credibility & Trust (High reputation >90-95% with good feedback count is preferred)
-    5.  Item Condition (New/Refurbished generally better unless Used is exceptional value)
-    6.  Rarity Score (As per definition provided below)
-Filter out auctions *only if* they are:
-    a) Clearly IRRELEVANT to a specific query "{{query}}".
-    b) Accessories when the query "{{query}}" is for a main product.
-    c) From sellers with critically low credibility (e.g., reputation far below 90% AND very few reviews).
-Return an array of the auction objects (including your assigned 'rarityScore'), sorted from the best to worst. It's expected you'll return many items if the input list is relevant.
-{{else}}
-INSTRUCTIONS FOR GENERAL CURATION (Query: "{{query}}")
-For general curation, focus on overall auction quality: credibility, potential value, items ending soon, and interesting/rare finds. Assign rarity scores. Rank accordingly. Be mindful of not including accessories if the general intent suggests a main product category. Aim to return a good selection of qualified auctions.
-{{/if}}
+You will be given three pieces of information:
 
-Auctions to Re-rank and Score for Rarity (up to {{auctions.length}}):
-{{#each auctions}}
+View Type: "{{viewType}}"
+User Search Query: "{{query}}"
+Item List (up to {{items.length}} items):
+{{#each items}}
 - ID: {{id}}
   Title: "{{title}}"
   Current Bid: £{{price}}
@@ -152,14 +138,27 @@ Auctions to Re-rank and Score for Rarity (up to {{auctions.length}}):
   Bid Count: {{bidCount_or_default bidCount 0}}
 {{/each}}
 
-For each auction you include:
-1.  Assess its **Rarity Score (0-100)**.
-    *   **LOWER** scores (0-40) for common, easily available, mass-produced items.
-    *   **MEDIUM** scores (41-70) for items that are less common, specific models, or good condition vintage.
-    *   **HIGHER** scores (71-100) for genuinely hard-to-find items: vintage in excellent condition, limited editions, very specific/uncommon configurations, or exceptionally rare finds.
+Based on the View Type, follow the corresponding logic below.
 
-Return an array of the auction objects (including all original fields and your assigned 'rarityScore'), sorted from the best auction to the worst according to the criteria above.
-The array can contain fewer items than the input if some auctions are not suitable based on the filtering rules, but for specific queries, aim to be inclusive.
+{{#eq viewType "Auctions"}}
+Your goal is to find interesting and relevant auctions that the user can participate in.
+
+Primary Sorting: Your primary sorting logic is soonest to end. Auctions ending in the near future are more urgent and valuable.
+
+Secondary Sorting & Ranking: For items ending at similar times, apply this logic:
+
+Keyword Relevance: Items that are a strong match for the user's query should be prioritized.
+
+**Rarity Assessment**: For each auction you include, assign a \`rarityScore\` (0-100). Lower scores (0-40) for common items, medium (41-70) for less common or good condition vintage, higher (71-100) for genuinely hard-to-find items.
+
+Minimum Viable List: Your goal is to present a healthy list of at least 16 auctions. If your initial quality filtering results in fewer than 16 items, you should be less strict and include more auctions that are a reasonable match for the user's query, even if they end further in the future.
+
+Accessory Filtering (Important for Relevance): When the query is for a specific product (e.g., "vintage Omega watch"), you must filter out or significantly deprioritize irrelevant accessories like watch straps, empty boxes, or service manuals unless the query explicitly asks for such an accessory. The user generally wants the core product.
+{{/eq}}
+
+Mandatory Final Instruction:
+
+After applying the logic, you must return the entire, re-ordered list of items in the exact original JSON format, matching the schema of the auction items (including the 'rarityScore' you assign). Do not add, remove, or alter any fields in the JSON objects beyond what the schema allows. Do not add any text, explanation, or summary. Your only output is the complete, sorted JSON array of qualified items. If no items are qualified, return an empty array.
 Example response format for 1 qualified auction:
 [
   {
@@ -175,47 +174,23 @@ Example response format for 1 qualified auction:
     "rarityScore": 75
   }
 ]
-Example response format if no auctions deemed suitable (should be rare for specific queries if input has items): []`,
+Example response format if no auctions deemed suitable: []`,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     timeLeft_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     bidCount_or_default: (value: number | undefined, defaultValue: number): number => value ?? defaultValue,
-    query_is_specific: (query: string) => {
-      const qLower = query.toLowerCase();
-      const systemQueryPatterns = [
-        "general curated auction", 
-        "background cache",
-        "top-up/soft refresh" 
-      ];
-      const simpleGenericTerms = ["auctions", "bids", "live auctions"];
-
-      if (!query || qLower.trim().length < 3) return false; 
-
-      if (systemQueryPatterns.some(pattern => qLower.includes(pattern))) {
-        return false;
-      }
-      if (simpleGenericTerms.includes(qLower)) {
-        return false;
-      }
-      if (qLower.endsWith(" initial") || qLower.endsWith(" more")) {
-          const baseQuery = qLower.replace(" initial", "").replace(" more", "");
-          if (systemQueryPatterns.some(pattern => baseQuery.includes(pattern))) {
-              return false;
-          }
-      }
-      return true; 
-    }
+    eq: (arg1, arg2) => arg1 === arg2,
   }
 });
 
 const qualifyAuctionsFlow = ai.defineFlow(
   {
-    name: 'qualifyAuctionsFlowWithRarity',
+    name: 'qualifyAuctionsFlowWithFullObjectReturn',
     inputSchema: QualifyAuctionsInputSchema,
     outputSchema: QualifyAuctionsOutputSchema,
   },
   async (input: QualifyAuctionsInput): Promise<AIAuction[]> => {
-    if (!input.auctions || input.auctions.length === 0) {
+    if (!input.items || input.items.length === 0) {
       return [];
     }
 
@@ -224,20 +199,19 @@ const qualifyAuctionsFlow = ai.defineFlow(
 
       if (!qualifiedAuctionsWithRarity) {
           console.warn(
-          `[qualifyAuctionsFlow] AI prompt returned null/undefined. Query: "${input.query}". Input count: ${input.auctions.length}. Falling back to original list (no rarity).`
+          `[qualifyAuctionsFlow] AI prompt returned null/undefined. Query: "${input.query}". Input count: ${input.items.length}. Falling back to original list (no rarity).`
           );
-          return input.auctions.map(auc => ({...auc, rarityScore: undefined, price: auc.price || 0 }));
+          // Map input to AIAuction with undefined rarity if AI fails to return anything
+          return input.items.map(auc => ({...auc, rarityScore: undefined, price: auc.price || 0 }));
       }
 
-      if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length > 0) {
-         console.info(`[qualifyAuctionsFlow] AI returned 0 auctions for query "${input.query}" from ${input.auctions.length} inputs. This is an explicit AI decision.`);
-        return [];
+      if (qualifiedAuctionsWithRarity.length === 0 && input.items.length > 0) {
+         console.info(`[qualifyAuctionsFlow] AI returned 0 auctions for query "${input.query}" from ${input.items.length} inputs. This is an explicit AI decision.`);
+        return []; // Respect AI's decision to return no items
       }
-      if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length === 0) {
-        return [];
-      }
-
-      const originalAuctionIds = new Set(input.auctions.map(auc => auc.id));
+      
+      // Validate AI output
+      const originalAuctionIds = new Set(input.items.map(auc => auc.id));
       const validatedAuctions = qualifiedAuctionsWithRarity.filter(auc => {
         if (!originalAuctionIds.has(auc.id)) {
           console.warn(`[qualifyAuctionsFlow] AI returned auction ID "${auc.id}" not in original input. Discarding.`);
@@ -245,7 +219,7 @@ const qualifyAuctionsFlow = ai.defineFlow(
         }
         if (typeof auc.rarityScore !== 'number' || auc.rarityScore < 0 || auc.rarityScore > 100) {
             console.warn(`[qualifyAuctionsFlow] AI returned auction ID "${auc.id}" with invalid rarityScore: ${auc.rarityScore}. Setting to undefined.`);
-            auc.rarityScore = undefined;
+            auc.rarityScore = undefined; // Correct invalid score
         }
         return true;
       });
@@ -256,7 +230,7 @@ const qualifyAuctionsFlow = ai.defineFlow(
       
       const uniqueValidatedAuctionsMap = new Map<string, AIAuction>();
       validatedAuctions.forEach(auc => {
-        if (!uniqueValidatedAuctionsMap.has(auc.id)) {
+        if (!uniqueValidatedAuctionsMap.has(auc.id)) { // Ensure uniqueness, AI might return duplicates
             uniqueValidatedAuctionsMap.set(auc.id, auc);
         }
       });
@@ -265,7 +239,9 @@ const qualifyAuctionsFlow = ai.defineFlow(
 
     } catch (e) {
       console.error(`[qualifyAuctionsFlow] CRITICAL FAILURE for query "${input.query}", returning original list (no rarity). Error:`, e);
-      return input.auctions.map(auc => ({...auc, rarityScore: undefined, price: auc.price || 0 }));
+      // Map input to AIAuction with undefined rarity in case of critical failure
+      return input.items.map(auc => ({...auc, rarityScore: undefined, price: auc.price || 0 }));
     }
   }
 );
+    

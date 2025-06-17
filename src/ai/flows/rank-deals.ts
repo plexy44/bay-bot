@@ -2,12 +2,12 @@
 'use server';
 
 /**
- * @fileOverview Qualifies and re-ranks a list of pre-filtered deals based on credibility, discount, relevance, seller reputation, and item rarity.
- * The flow now asks the AI to return only an array of deal IDs in ranked order, then reconstructs the full deal list.
+ * @fileOverview Qualifies and re-ranks a list of pre-filtered deals based on a comprehensive AI prompt.
+ * The AI is expected to return the full list of qualified and sorted deal objects.
  *
  * - rankDeals - A function that handles the deal qualification and ranking process.
  * - RankDealsInput - The input type for the rankDeals function.
- * - RankDealsOutput - The return type for the rankDeals function (still an array of full Deal objects).
+ * - RankDealsOutput - The return type for the rankDeals function (array of full Deal objects).
  */
 
 import {ai} from '@/ai/genkit';
@@ -29,8 +29,9 @@ const DealSchema = z.object({
 export type AIDeal = z.infer<typeof DealSchema>;
 
 const RankDealsInputSchema = z.object({
-  deals: z.array(DealSchema).describe('The list of pre-filtered and server-sorted deals to qualify and rank.'),
-  query: z.string().describe('The user search query for relevance checking. If this is "general curated deals" or similar, treat as a general curation task. If it is a specific user query, prioritize direct relevance to that query string.'),
+  viewType: z.literal('Deals').describe('Indicates that the processing is for deals.'),
+  items: z.array(DealSchema).describe('The list of pre-filtered deals to qualify and rank.'),
+  query: z.string().describe('The user search query for relevance checking.'),
 });
 
 export type RankDealsInput = z.infer<typeof RankDealsInputSchema>;
@@ -59,79 +60,71 @@ export async function rankDeals(
         condition: item.condition,
     }));
 
-    const flowInput: RankDealsInput = { deals: aiDealsInput, query };
+    const flowInput: RankDealsInput = { viewType: 'Deals', items: aiDealsInput, query };
 
     try {
         const rankedAiDeals: AIDeal[] = await rankDealsFlow(flowInput);
 
+        if (rankedAiDeals.length === 0 && dealscopeDeals.length > 0) {
+            console.warn(`[rankDeals entry] AI flow returned 0 qualified deals for query "${query}" from ${dealscopeDeals.length} inputs.`);
+            // Return empty if AI explicitly says so
+            return [];
+        }
+        
         const dealscopeDealMap = new Map(dealscopeDeals.map(deal => [deal.id, deal]));
         
         const uniqueRankedAiDealsMap = new Map<string, AIDeal>();
         rankedAiDeals.forEach(aiDeal => {
-            if (!uniqueRankedAiDealsMap.has(aiDeal.id)) {
-                uniqueRankedAiDealsMap.set(aiDeal.id, aiDeal);
+            if (dealscopeDealMap.has(aiDeal.id)) { // Ensure AI returned valid, original items
+                 if (!uniqueRankedAiDealsMap.has(aiDeal.id)) {
+                    uniqueRankedAiDealsMap.set(aiDeal.id, aiDeal);
+                }
+            } else {
+                console.warn(`[rankDeals entry] AI returned a deal ID "${aiDeal.id}" not present in the original input for query "${query}". Discarding.`);
             }
         });
         const uniqueRankedAiDeals = Array.from(uniqueRankedAiDealsMap.values());
 
         const reorderedDealScopeDeals: DealScopeItem[] = uniqueRankedAiDeals
-            .map(aiDeal => dealscopeDealMap.get(aiDeal.id))
+            .map(aiDeal => {
+                const originalDeal = dealscopeDealMap.get(aiDeal.id);
+                if (originalDeal) {
+                    // The AI returns AIDeal which should have all necessary fields.
+                    // We merge to retain any DealScopeItem specific fields not in AIDeal, if any.
+                    // And to ensure the returned objects are full DealScopeItem instances from the original list.
+                    return {
+                        ...originalDeal, // Start with original to preserve all its properties
+                        ...aiDeal,       // Overlay with AI's version (which should be identical in structure for AIDeal)
+                    };
+                }
+                return null;
+            })
             .filter(Boolean) as DealScopeItem[];
-
-        if (rankedAiDeals.length === 0 && dealscopeDeals.length > 0) {
-            console.warn(`[rankDeals entry] AI flow returned 0 qualified deals for query "${query}" from ${dealscopeDeals.length} inputs.`);
-        }
-
+        
         return reorderedDealScopeDeals;
 
     } catch (e) {
         console.error(`[rankDeals entry] Error calling rankDealsFlow for query "${query}". Returning original DealScope deal list as fallback. Error:`, e);
-        return dealscopeDeals;
+        return dealscopeDeals; // Fallback to original, unsorted list
     }
 }
 
-
-const RankedDealIdsOutputSchema = z.array(z.string().describe('The ID of the deal in qualified and ranked order.'));
-
 const rankDealsPrompt = ai.definePrompt({
-  name: 'qualifyAndRankDealsPrompt',
+  name: 'curateAndSortItemsPromptDeals',
   input: {
     schema: RankDealsInputSchema,
   },
   output: {
-    schema: RankedDealIdsOutputSchema,
+    schema: RankDealsOutputSchema, 
   },
-  prompt: `You are an expert shopping assistant specializing in finding the best deals.
-The following list of deals has been pre-filtered by the system.
-Your task is to return ONLY an array of the deal IDs for items you deem qualified, sorted from the best deal to the worst.
-If you deem no items are qualified, return an empty array.
+  prompt: `You are an expert e-commerce curator with a deep understanding of the eBay marketplace. Your primary function is to intelligently sort and filter a provided list of items to create the most valuable and relevant view for the user. You must be precise but not overly strict, always aiming to provide a useful selection.
 
-User Query: "{{query}}"
+You will be given three pieces of information:
 
-{{#if query_is_specific query}}
-CRITICAL INSTRUCTIONS FOR SPECIFIC USER QUERY: "{{query}}"
-You MUST follow this ranking hierarchy strictly:
-1.  **Exact/Very Strong Relevance to "{{query}}":** This is a non-negotiable filter. Only include items that are a direct and clear match to "{{query}}". DISCARD items that are not a direct match.
-    *   **Accessory Filtering:** Crucially, if "{{query}}" is for a main product (e.g., 'iPhone 15 Pro', 'Dell XPS 15', 'Sony A7 IV camera'), you MUST DISCARD all listings that are only accessories (e.g., phone cases, screen protectors, laptop bags, camera lenses unless the query *is* for a lens). If the query IS for an accessory (e.g., 'iPhone 15 Pro case'), then accessories are relevant. For broad specific queries like "laptops" or "TVs", ensure the item is indeed a laptop or TV, not a minor part or accessory.
-2.  **Highest Genuine Discount Percentage (Strict Sorting):** AFTER establishing direct relevance (Step 1), you MUST sort the remaining relevant items STRICTLY in DESCENDING order of their 'discountPercentage'. An item with a higher 'discountPercentage' (e.g., 50%) MUST always appear before an item with a lower 'discountPercentage' (e.g., 10%). Items with 0% or no discount should appear last among relevant items, if included at all.
-3.  **Tie-Breaking (Use ONLY if 'discountPercentage' is identical or very close for relevant items):**
-    *   **Seller Credibility & Trust:** Prefer sellers with higher reputation (>95%) and more feedback.
-    *   **Item Condition:** Prefer New or Manufacturer Refurbished over Used, unless the Used item has a significantly better discount (which should have been handled by Step 2) AND high seller credibility.
-    *   **Price Competitiveness:** Ensure the final price is reasonable.
-(Item Rarity is less important for specific searches focused on deals unless it's an exceptionally rare item *also* at a good discount).
-{{else}}
-INSTRUCTIONS FOR GENERAL CURATION (Query: "{{query}}")
-Your task is to return ONLY an array of the deal IDs, sorted from best to worst.
-Focus on overall deal quality. The primary factors for ranking are:
-1.  **Highest Genuine Discount Percentage:** Give strong preference to items with higher 'discountPercentage'. Items with significant discounts (e.g., 20% or more) should be ranked at the top.
-2.  **Seller Credibility & Trust:** Prefer sellers with higher reputation and more feedback.
-3.  **Item Desirability & Relevance:** Consider if the item is generally desirable or a good find.
-Be mindful of not including accessories if the general intent suggests a main product category.
-Sort the items in DESCENDING order of their attractiveness as a deal, with discount percentage being the most heavily weighted factor.
-{{/if}}
-
-Deals to Qualify and Re-rank (up to {{deals.length}}):
-{{#each deals}}
+View Type: "{{viewType}}"
+User Search Query: "{{query}}"
+Item List (up to {{items.length}} items):
+{{#each items}}
 - ID: {{id}}
   Title: "{{title}}"
   Price: £{{price}}
@@ -141,89 +134,114 @@ Deals to Qualify and Re-rank (up to {{deals.length}}):
   Condition: {{condition_or_default condition "Not specified"}}
 {{/each}}
 
-Return ONLY an array of the deal IDs that you qualify, sorted from the best deal to the worst based on the criteria above.
-The array can contain fewer IDs than the input if some deals are not qualified.
-Example response format for 3 qualified deals: ["id_with_highest_discount", "id_with_medium_discount", "id_with_lowest_discount"]
-Example response format if no deals qualified: []`,
+Based on the View Type, follow the corresponding logic below.
+
+{{#eq viewType "Deals"}}
+Your goal is to find the best-value items with the highest discounts.
+
+Initial Filter (The Great Filter): First, review the entire list and identify items that are highly irrelevant or likely scams.
+
+Keyword Relevance: When the query is for a specific product (e.g., "Apple iPhone"), you must aggressively filter out irrelevant accessories like cases, screen protectors, chargers, or empty boxes. The user wants the core product, not its peripherals. Try and apply this to all items associated with these kinds of scams.
+
+Price Sanity Check: If an item's price seems absurdly low for the product (e.g., a new iPhone for £10), it is likely a scam or an accessory. These should be considered extremely low quality.
+
+Primary Sorting: Your primary sorting logic is highest percentage off. Items with a calculated discount must always appear before items without one.
+
+Secondary Sorting & Ranking: For items with similar or identical discounts, apply this secondary logic to refine their order:
+
+Keyword Relevance: An item that is an exact match for the user's query is more valuable than a partial match.
+
+Seller Reputation: Give a slight preference to items from sellers with higher ratings.
+
+Handling a Vague Search: If the query is broad (e.g., "phone", "laptop"), be more inclusive. Your priority is still to find discounted items, but you should focus on items from legitimate, reputable sellers, even if the brand wasn't specified.
+
+Final Placement: Items that you did not filter out but have no discount percentage should be placed at the very bottom of the sorted list.
+{{/eq}}
+
+Mandatory Final Instruction:
+
+After applying the logic, you must return the entire, re-ordered list of items in the exact original JSON format, matching the schema of the input items. Do not add, remove, or alter any fields in the JSON objects beyond what the schema allows. Do not add any text, explanation, or summary. Your only output is the complete, sorted JSON array of qualified items. If no items are qualified, return an empty array.
+Example response format for 2 qualified deals:
+[
+  {
+    "id": "id_high_discount_relevant",
+    "title": "Relevant Item A with High Discount",
+    "price": 50.00,
+    "originalPrice": 100.00,
+    "discountPercentage": 50,
+    "sellerReputation": 98,
+    "sellerFeedbackScore": 1500,
+    "imageUrl": "http://example.com/image_a.jpg",
+    "condition": "New"
+  },
+  {
+    "id": "id_low_discount_relevant",
+    "title": "Relevant Item B with Lower Discount",
+    "price": 80.00,
+    "originalPrice": 100.00,
+    "discountPercentage": 20,
+    "sellerReputation": 99,
+    "sellerFeedbackScore": 500,
+    "imageUrl": "http://example.com/image_b.jpg",
+    "condition": "New"
+  }
+]
+Example if no items qualified: []`,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
-    query_is_specific: (query: string) => {
-      const qLower = query.toLowerCase();
-      const systemQueryPatterns = [
-        "general curated deal",
-        "background cache",
-        "top-up/soft refresh"
-      ];
-      const simpleGenericTerms = ["deals", "offers", "discounts", "sale"];
-
-      if (!query || qLower.trim().length < 3) return false;
-
-      if (systemQueryPatterns.some(pattern => qLower.includes(pattern))) {
-        return false;
-      }
-      if (simpleGenericTerms.includes(qLower)) {
-        return false;
-      }
-      // Check for system queries that might end with " initial" or " more"
-      if (qLower.endsWith(" initial") || qLower.endsWith(" more")) {
-          const baseQuery = qLower.replace(" initial", "").replace(" more", "");
-          if (systemQueryPatterns.some(pattern => baseQuery.includes(pattern))) {
-              return false;
-          }
-      }
-      return true;
-    }
+    eq: (arg1, arg2) => arg1 === arg2,
   }
 });
 
 const rankDealsFlow = ai.defineFlow(
   {
-    name: 'rankDealsFlow',
+    name: 'rankDealsFlowWithFullObjectReturn',
     inputSchema: RankDealsInputSchema,
-    outputSchema: RankDealsOutputSchema,
+    outputSchema: RankDealsOutputSchema, 
   },
   async (input: RankDealsInput): Promise<AIDeal[]> => {
-    if (!input.deals || input.deals.length === 0) {
+    if (!input.items || input.items.length === 0) {
       return [];
     }
 
     try {
-      const {output: rankedIds} = await rankDealsPrompt(input);
+      const {output: rankedFullDeals} = await rankDealsPrompt(input);
 
-      if (!rankedIds) {
+      if (!rankedFullDeals) {
           console.warn(
-          `[rankDealsFlow] AI ranking (IDs) prompt returned null/undefined. Query: "${input.query}". Deals count: ${input.deals.length}. Falling back to original deal list order.`
+          `[rankDealsFlow] AI ranking (full objects) prompt returned null/undefined. Query: "${input.query}". Deals count: ${input.items.length}. Falling back to original deal list order.`
           );
-          return input.deals;
+          return input.items; // Fallback to original items in original order
       }
 
-      if (rankedIds.length === 0) {
-        return [];
+      // Validate that AI didn't introduce new items or malformed items
+      const originalDealIds = new Set(input.items.map(deal => deal.id));
+      const validatedDeals = rankedFullDeals.filter(deal => {
+        if (!originalDealIds.has(deal.id)) {
+          console.warn(`[rankDealsFlow] AI returned deal with ID "${deal.id}" which was not in the original input. Discarding.`);
+          return false;
+        }
+        // Add more validation if necessary (e.g., all required fields present)
+        return true;
+      });
+      
+      if (validatedDeals.length !== rankedFullDeals.length) {
+          console.warn(`[rankDealsFlow] Some deals from AI were discarded due to ID mismatch. Original AI count: ${rankedFullDeals.length}, Validated: ${validatedDeals.length}. Query: "${input.query}".`);
       }
+       // Ensure uniqueness in the final list from AI, preferring the order AI provided
+      const uniqueValidatedDealsMap = new Map<string, AIDeal>();
+      validatedDeals.forEach(deal => {
+          if (!uniqueValidatedDealsMap.has(deal.id)) {
+              uniqueValidatedDealsMap.set(deal.id, deal);
+          }
+      });
 
-      const outputIdsSet = new Set(rankedIds);
-      if (rankedIds.length !== outputIdsSet.size) {
-        console.warn(
-          `[rankDealsFlow] AI ranking (IDs) output contained duplicate IDs. Query: "${input.query}". Falling back to original deal list order.`
-        );
-        return input.deals;
-      }
-
-      const dealMap = new Map(input.deals.map(deal => [deal.id, deal]));
-      const reorderedDeals: AIDeal[] = rankedIds
-        .map(id => dealMap.get(id))
-        .filter(Boolean) as AIDeal[];
-
-      if (reorderedDeals.length !== rankedIds.length) {
-          console.warn(`[rankDealsFlow] AI returned ${rankedIds.length} IDs, but only ${reorderedDeals.length} mapped to original deals. Query: "${input.query}".`);
-      }
-
-      return reorderedDeals;
+      return Array.from(uniqueValidatedDealsMap.values());
 
     } catch (e) {
       console.error(`[rankDealsFlow] Failed to rank deals for query "${input.query}", returning original list. Error:`, e);
-      return input.deals;
+      return input.items; // Fallback to original items in original order
     }
   }
 );
-
+    
