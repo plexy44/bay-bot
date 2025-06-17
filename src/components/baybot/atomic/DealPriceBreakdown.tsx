@@ -16,7 +16,7 @@ export const DealPriceBreakdown: React.FC<DealPriceBreakdownProps> = ({ item }) 
   }
 
   return (
-    <div className="space-y-3 p-4 bg-muted/20 rounded-lg border border-border/30 backdrop-blur-sm mb-4">
+    <div className="space-y-3 p-4 bg-muted/50 rounded-lg border border-border/30 backdrop-blur-sm mb-4">
       <h4 className="text-md font-semibold text-foreground flex items-center">
         <Tag className="w-5 h-5 mr-2 text-primary/80" />
         Deal Breakdown
