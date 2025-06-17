@@ -98,9 +98,11 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
             unoptimized={item.imageUrl?.includes('ebayimg.com')}
             priority={false}
           />
+
+          {/* AI Analysis Trigger: For Deals with Discount (Icon + Text) */}
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
             <Badge
-              className="absolute top-3 right-3 rainbow-badge-animated px-2 py-0.5 text-xs flex items-center gap-1"
+              className="absolute top-3 right-3 rainbow-badge-animated px-2 py-0.5 text-xs flex items-center gap-1 cursor-pointer"
               onClick={() => onAnalyze(item)}
               role="button"
               tabIndex={0}
@@ -111,10 +113,26 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
               <span className="text-white text-shadow-strong">{item.discountPercentage}% OFF</span>
             </Badge>
           )}
+
+          {/* AI Analysis Trigger: For Auctions OR Deals WITHOUT Discount (Icon Only) */}
+          {!(item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0) && (
+            <Badge
+              className="absolute top-3 right-3 rainbow-badge-animated p-1.5 text-xs flex items-center justify-center cursor-pointer"
+              onClick={() => onAnalyze(item)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAnalyze(item); }}
+              aria-label="Analyze item with AI"
+            >
+              <Info className="h-3.5 w-3.5 text-white text-shadow-strong" />
+            </Badge>
+          )}
+          
+           {/* Rarity Score for Auctions - Positioned top-left */}
            {item.type === 'auction' && typeof item.rarityScore === 'number' && (
              <Badge
               variant="secondary"
-              className="absolute top-3 right-3 px-2.5 py-1 text-xs flex items-center gap-1.5 bg-black/60 text-white border-white/30 backdrop-blur-sm shadow-lg"
+              className="absolute top-3 left-3 px-2.5 py-1 text-xs flex items-center gap-1.5 bg-black/60 text-white border-white/30 backdrop-blur-sm shadow-lg"
             >
               <Gem className="h-3.5 w-3.5" />
               Rarity: {item.rarityScore}
