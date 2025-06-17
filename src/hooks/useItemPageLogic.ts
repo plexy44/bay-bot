@@ -77,7 +77,12 @@ export function useItemPageLogic(itemType: ItemType) {
     : "general curated deals background cache from auctions";
 
 
-  const loadItems = useCallback(async (queryToLoad: string, isNewQueryLoad: boolean, offsetForCall: number = 0) => {
+  const loadItems = useCallback(async (
+    queryToLoad: string,
+    isNewQueryLoad: boolean,
+    offsetForCall: number = 0,
+    existingItemsToPreserveOnCuratedRefresh?: DealScopeItem[]
+  ) => {
     let isMounted = true;
     const isGlobalCuratedRequest = queryToLoad === '';
     let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
@@ -89,7 +94,10 @@ export function useItemPageLogic(itemType: ItemType) {
       setError(null);
       setIsAuthError(false);
       setInitialLoadComplete(false);
-      setAllItems([]);
+      // Only reset allItems if not preserving for logo click refresh
+      if (!existingItemsToPreserveOnCuratedRefresh) {
+        setAllItems([]);
+      }
       setCuratedLoadMoreAttempts(0); 
     } else { 
       setIsLoadingMore(true); 
@@ -103,7 +111,8 @@ export function useItemPageLogic(itemType: ItemType) {
     let attemptedKeywords = new Set<string>();
 
     try {
-      if (isNewQueryLoad) {
+      // Skip cache check if it's a logo click refresh that intends to prepend
+      if (isNewQueryLoad && !existingItemsToPreserveOnCuratedRefresh) {
         const cachedDataString = sessionStorage.getItem(currentCacheKey);
         if (cachedDataString) {
           const cachedData = JSON.parse(cachedDataString);
@@ -121,14 +130,14 @@ export function useItemPageLogic(itemType: ItemType) {
               setAllItems(uniqueInitialItems);
               
               let limitForInitialCacheLoad = API_FETCH_LIMIT;
-              if (itemType === 'deal' || itemType === 'auction') { // Specific search (deal or auction)
+              if (!isGlobalCuratedRequest && (itemType === 'deal' || itemType === 'auction')) {
                  limitForInitialCacheLoad = API_FETCH_LIMIT * 2;
               }
 
               if (isGlobalCuratedRequest) {
                   setCurrentApiOffset(uniqueInitialItems.length); 
-                  setHasMoreBackendItems(uniqueInitialItems.length > 0); // If loading from cache, and items exist, assume more might be available via "Load More"
-              } else { // Specific search
+                  setHasMoreBackendItems(uniqueInitialItems.length > 0); 
+              } else { 
                   setCurrentApiOffset(uniqueInitialItems.length >= limitForInitialCacheLoad ? limitForInitialCacheLoad : uniqueInitialItems.length);
                   setHasMoreBackendItems(uniqueInitialItems.length >= limitForInitialCacheLoad);
               }
@@ -183,7 +192,6 @@ export function useItemPageLogic(itemType: ItemType) {
         fetchedItemsFromServer = Array.from(accumulatedRawEbayItemsMap.values());
         processedBatchForAI = fetchedItemsFromServer;
       } else { 
-        // Specific search
         if (isNewQueryLoad) { 
             if (itemType === 'deal' || itemType === 'auction') {
                 itemsToFetchThisCall = API_FETCH_LIMIT * 2; 
@@ -193,15 +201,15 @@ export function useItemPageLogic(itemType: ItemType) {
         processedBatchForAI = fetchedItemsFromServer;
       }
 
-      let aiProcessedItems: DealScopeItem[] = [];
+      let newlyProcessedCuratedItems: DealScopeItem[] = [];
       if (processedBatchForAI.length > 0) {
         if (isMounted) setIsRanking(true);
-        aiProcessedItems = await aiRankOrQualifyItems(processedBatchForAI, isGlobalCuratedRequest ? `general curated ${itemType} ${isNewQueryLoad ? 'initial' : 'more'}` : queryToLoad);
+        newlyProcessedCuratedItems = await aiRankOrQualifyItems(processedBatchForAI, isGlobalCuratedRequest ? `general curated ${itemType} ${isNewQueryLoad ? 'initial' : 'more'}` : queryToLoad);
         if (isMounted) setIsRanking(false);
          if (isNewQueryLoad) {
-            overallToastMessage = { title: `${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}: AI Processed`, description: `Displaying ${aiProcessedItems.length} AI-processed ${itemType}.` };
+            overallToastMessage = { title: `${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}: AI Processed`, description: `Displaying ${newlyProcessedCuratedItems.length} AI-processed ${itemType}.` };
         } else {
-            overallToastMessage = { title: `More ${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}`, description: `Added ${aiProcessedItems.length} more AI-processed ${itemType}.` };
+            overallToastMessage = { title: `More ${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}`, description: `Added ${newlyProcessedCuratedItems.length} more AI-processed ${itemType}.` };
         }
       } else {
          if (isNewQueryLoad) {
@@ -211,26 +219,49 @@ export function useItemPageLogic(itemType: ItemType) {
         }
       }
        
-      const finalProcessedBatch = aiProcessedItems; 
+      const finalProcessedBatch = newlyProcessedCuratedItems; 
 
       if (isNewQueryLoad) {
-          if (isMounted) setAllItems(finalProcessedBatch);
+          if (isGlobalCuratedRequest && existingItemsToPreserveOnCuratedRefresh) {
+              const combinedItems = [...finalProcessedBatch, ...existingItemsToPreserveOnCuratedRefresh];
+              const uniqueCombinedItemsMap = new Map<string, DealScopeItem>();
+              finalProcessedBatch.forEach(item => uniqueCombinedItemsMap.set(item.id, item)); // New items take precedence
+              existingItemsToPreserveOnCuratedRefresh.forEach(item => {
+                  if (!uniqueCombinedItemsMap.has(item.id)) {
+                      uniqueCombinedItemsMap.set(item.id, item);
+                  }
+              });
+              if (isMounted) setAllItems(Array.from(uniqueCombinedItemsMap.values()));
+          } else {
+              if (isMounted) setAllItems(finalProcessedBatch);
+          }
+
           if (isGlobalCuratedRequest) {
               if (isMounted) {
                 setHasMoreBackendItems(finalProcessedBatch.length > 0 || fetchedItemsFromServer.length > 0);
                 setCurrentApiOffset(finalProcessedBatch.length); 
                 setCuratedLoadMoreAttempts(0); 
               }
-          } else { // Specific Search (New Load)
+          } else { 
               if (isMounted) {
                 setHasMoreBackendItems(fetchedItemsFromServer.length >= itemsToFetchThisCall);
                 setCurrentApiOffset(itemsToFetchThisCall);
               }
           }
-          if (isMounted && !error && finalProcessedBatch.length > 0) {
-              try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: finalProcessedBatch, timestamp: Date.now() })); }
-              catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e); }
+          // Cache management: always cache the LATEST batch of items for the specific query/curation.
+          // For curated refresh (logo click), cache only the NEWLY fetched items.
+          // For regular loads, cache the full new set.
+          if (isMounted && !error) {
+              const itemsToCache = (isGlobalCuratedRequest && existingItemsToPreserveOnCuratedRefresh) ? finalProcessedBatch : finalProcessedBatch;
+              if (itemsToCache.length > 0) {
+                try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: itemsToCache, timestamp: Date.now() })); }
+                catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e); }
+              } else if (!isGlobalCuratedRequest || (isGlobalCuratedRequest && !existingItemsToPreserveOnCuratedRefresh)) {
+                // If it's a specific search returning no items, or a fresh curated load (not prepend) returning no items, clear cache
+                sessionStorage.removeItem(currentCacheKey);
+              }
           }
+
       } else { // Load More
           let newItemsAddedCount = 0;
           if (isMounted) {
@@ -239,6 +270,7 @@ export function useItemPageLogic(itemType: ItemType) {
                 const trulyNewItems = finalProcessedBatch.filter(newItem => !existingIds.has(newItem.id));
                 newItemsAddedCount = trulyNewItems.length;
                 const updatedList = [...prevAllItems, ...trulyNewItems];
+                // For "Load More", update cache with the full concatenated list if new items were added
                 if (!error && trulyNewItems.length > 0) {
                     try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: updatedList, timestamp: Date.now() })); }
                     catch (e) { console.warn(`[useItemPageLogic loadItems] Error updating sessionStorage for key "${currentCacheKey}" after load more:`, e); }
@@ -247,7 +279,7 @@ export function useItemPageLogic(itemType: ItemType) {
             });
           }
           
-          if (isGlobalCuratedRequest) { // Curated Load More
+          if (isGlobalCuratedRequest) { 
               if (isMounted) {
                 setCuratedLoadMoreAttempts(prevAttempts => {
                     const nextAttempts = prevAttempts + 1;
@@ -256,7 +288,7 @@ export function useItemPageLogic(itemType: ItemType) {
                 });
                 setCurrentApiOffset(prevOffset => prevOffset + newItemsAddedCount);
               }
-          } else { // Specific Search Load More (always uses API_FETCH_LIMIT for itemsToFetchThisCall)
+          } else { 
               if (isMounted) {
                 setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT); 
                 setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT); 
@@ -407,7 +439,7 @@ export function useItemPageLogic(itemType: ItemType) {
           }
         }
 
-        const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false, 0, API_FETCH_LIMIT); 
+        const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false, 0, API_FETCH_LIMIT * 2); 
         if (fetchedOtherTypeItems.length > 0) {
            let activeFetchedItems = fetchedOtherTypeItems;
            if (otherItemType === 'auction') {
@@ -445,12 +477,15 @@ export function useItemPageLogic(itemType: ItemType) {
 
   const handleLogoClick = useCallback(async () => {
     setInputValue('');
+    const itemsCurrentlyOnPage = [...allItems];
+    sessionStorage.removeItem(CURATED_CACHE_KEY);
+
     if (currentQueryFromUrl === '' && pathname === pagePath) {
-      await loadItems('', true, 0);
+        await loadItems('', true, 0, itemsCurrentlyOnPage);
     } else {
-      router.push(pagePath);
+        router.push(pagePath);
     }
-  }, [router, loadItems, pagePath, pathname, currentQueryFromUrl]);
+  }, [allItems, currentQueryFromUrl, pathname, pagePath, router, loadItems, CURATED_CACHE_KEY, setInputValue]);
 
 
   const handleLoadMore = useCallback(async () => {
@@ -559,3 +594,5 @@ export function useItemPageLogic(itemType: ItemType) {
     activeItemsForNoMessageCount: activeItemsForNoMessage.length,
   };
 }
+
+    
