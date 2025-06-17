@@ -148,7 +148,8 @@ export const SEARCHED_DEALS_CACHE_KEY_PREFIX = 'searchedDealsCache__';
 export const SEARCHED_AUCTIONS_CACHE_KEY_PREFIX = 'searchedAuctionsCache__';
 
 // For backend pagination / infinite scroll
-export const API_FETCH_LIMIT = 250; // Number of items to fetch per API call for pagination
+export const API_FETCH_LIMIT = 200; // Number of items to fetch per API call for pagination
 
 // For curated "Load More" persistence
 export const MAX_CURATED_LOAD_MORE_TRIES = 3; // Number of times "Load More" can be clicked for curated, even if an attempt yields 0 new items.
+
