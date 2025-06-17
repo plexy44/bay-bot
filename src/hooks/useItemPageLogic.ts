@@ -121,14 +121,14 @@ export function useItemPageLogic(itemType: ItemType) {
               setAllItems(uniqueInitialItems);
               
               let limitForInitialCacheLoad = API_FETCH_LIMIT;
-              if (itemType === 'deal' && !isGlobalCuratedRequest) {
+              if (!isGlobalCuratedRequest) { // Specific search (deal or auction)
                  limitForInitialCacheLoad = API_FETCH_LIMIT * 2;
               }
 
               if (isGlobalCuratedRequest) {
                   setCurrentApiOffset(uniqueInitialItems.length); 
                   setHasMoreBackendItems(uniqueInitialItems.length > 0 || (fetchedItemsFromServer && fetchedItemsFromServer.length > 0)); 
-              } else {
+              } else { // Specific search
                   setCurrentApiOffset(uniqueInitialItems.length >= limitForInitialCacheLoad ? limitForInitialCacheLoad : uniqueInitialItems.length);
                   setHasMoreBackendItems(uniqueInitialItems.length >= limitForInitialCacheLoad);
               }
@@ -170,7 +170,7 @@ export function useItemPageLogic(itemType: ItemType) {
             if (keywordsForThisBatch.length === 0) break;
             keywordsForThisBatch.forEach(kw => attemptedKeywords.add(kw));
 
-            const fetchedBatchesPromises = keywordsForThisBatch.map(kw => fetchItems(itemType, kw, true, 0, API_FETCH_LIMIT)); // Curated always uses API_FETCH_LIMIT per keyword
+            const fetchedBatchesPromises = keywordsForThisBatch.map(kw => fetchItems(itemType, kw, true, 0, API_FETCH_LIMIT));
             const fetchedBatchesResults = await Promise.allSettled(fetchedBatchesPromises);
             
             fetchedBatchesResults.forEach(result => {
@@ -184,8 +184,12 @@ export function useItemPageLogic(itemType: ItemType) {
         processedBatchForAI = fetchedItemsFromServer;
       } else { 
         // Specific search
-        if (itemType === 'deal' && isNewQueryLoad) {
-            itemsToFetchThisCall = API_FETCH_LIMIT * 2; // Fetch more for initial specific deal search
+        if (isNewQueryLoad) { // Only for new specific search, not "load more"
+            if (itemType === 'deal') {
+                itemsToFetchThisCall = API_FETCH_LIMIT * 2; 
+            } else if (itemType === 'auction') {
+                itemsToFetchThisCall = API_FETCH_LIMIT * 2; 
+            }
         }
         fetchedItemsFromServer = await fetchItems(itemType, queryToLoad, false, offsetForCall, itemsToFetchThisCall);
         processedBatchForAI = fetchedItemsFromServer;
@@ -197,9 +201,9 @@ export function useItemPageLogic(itemType: ItemType) {
         aiProcessedItems = await aiRankOrQualifyItems(processedBatchForAI, isGlobalCuratedRequest ? `general curated ${itemType} ${isNewQueryLoad ? 'initial' : 'more'}` : queryToLoad);
         if (isMounted) setIsRanking(false);
          if (isNewQueryLoad) {
-            overallToastMessage = { title: `${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}: AI Qualified`, description: `Displaying ${aiProcessedItems.length} AI-qualified ${itemType}.` };
+            overallToastMessage = { title: `${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}: AI Processed`, description: `Displaying ${aiProcessedItems.length} AI-processed ${itemType}.` };
         } else {
-            overallToastMessage = { title: `More ${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}`, description: `Added ${aiProcessedItems.length} more AI-qualified ${itemType}.` };
+            overallToastMessage = { title: `More ${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}`, description: `Added ${aiProcessedItems.length} more AI-processed ${itemType}.` };
         }
       } else {
          if (isNewQueryLoad) {
@@ -221,7 +225,7 @@ export function useItemPageLogic(itemType: ItemType) {
               }
           } else { // Specific Search (New Load)
               if (isMounted) {
-                // itemsToFetchThisCall was used for fetching
+                // itemsToFetchThisCall was used for fetching (e.g., API_FETCH_LIMIT * 2)
                 setHasMoreBackendItems(fetchedItemsFromServer.length >= itemsToFetchThisCall);
                 setCurrentApiOffset(itemsToFetchThisCall);
               }
@@ -257,8 +261,8 @@ export function useItemPageLogic(itemType: ItemType) {
               }
           } else { // Specific Search Load More (always uses API_FETCH_LIMIT for itemsToFetchThisCall)
               if (isMounted) {
-                setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT);
-                setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
+                setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT); // Offset increases by standard API_FETCH_LIMIT
+                setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT); // Check based on standard API_FETCH_LIMIT
               }
           }
       }
@@ -406,7 +410,7 @@ export function useItemPageLogic(itemType: ItemType) {
           }
         }
 
-        const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false, 0, API_FETCH_LIMIT);
+        const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false, 0, API_FETCH_LIMIT); // Fetch standard amount for other type search cache
         if (fetchedOtherTypeItems.length > 0) {
            let activeFetchedItems = fetchedOtherTypeItems;
            if (otherItemType === 'auction') {
@@ -419,7 +423,8 @@ export function useItemPageLogic(itemType: ItemType) {
               }
            }
         }
-      } catch (e: any) {
+      } catch (e: any)
+       {
         console.warn(`[useItemPageLogic Proactive Search Cache] Error during proactive SEARCHED ${otherItemType} caching for query "${query}":`, e.message);
       }
     };
@@ -557,5 +562,3 @@ export function useItemPageLogic(itemType: ItemType) {
     activeItemsForNoMessageCount: activeItemsForNoMessage.length,
   };
 }
-
-    

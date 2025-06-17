@@ -115,20 +115,33 @@ const qualifyAuctionsPrompt = ai.definePrompt({
   output: {
     schema: QualifyAuctionsOutputSchema,
   },
-  prompt: `You are an expert shopping assistant specializing in eBay auctions. The following list of auctions has already been pre-filtered and sorted by the system (typically by ending soonest).
-Your task is to QUALIFY, RE-RANK these auctions, and ASSIGN a Rarity Score (0-100) to each qualified auction.
-Return an array of the full auction objects for items you deem qualified, sorted from the best auction to the worst. Each object must include all original fields plus your assigned 'rarityScore'.
-If you deem no items are qualified, return an empty array.
-
+  prompt: `You are an expert shopping assistant specializing in eBay auctions. The following list of auctions has already been pre-filtered by the system.
 User Query: "{{query}}"
+
 {{#if query_is_specific query}}
-IMPORTANT: The user has provided a specific query: "{{query}}". Prioritize items that are an EXACT or VERY STRONG match to this query above all other factors. If an item is not highly relevant to this specific query, it should be ranked very low or not qualified.
-When the query is for a main product (e.g., 'iPhone 15', 'Dell laptop', 'Sony camera'), explicitly filter out accessories (e.g., cases, screen protectors, chargers, cables, bags, lenses unless the camera query includes 'lens') unless the query ITSELF is for an accessory (e.g., 'iPhone 15 case').
+CRITICAL INSTRUCTIONS FOR SPECIFIC USER QUERY: "{{query}}"
+Your task is to RE-RANK the provided auctions based on their suitability for the user's query "{{query}}", ASSIGN a Rarity Score (0-100) to each auction, and return a list of these auctions.
+For specific queries, you should aim to include MOST, if not ALL, of the provided auctions if they are at least a REASONABLE MATCH for "{{query}}". Your main job is to SORT them effectively and assign rarity.
+*   **Relevance is Key for Ranking:** Items that are an EXACT or VERY STRONG match for "{{query}}" should be ranked highest.
+*   **Accessory Filtering:** If "{{query}}" is for a main product (e.g., 'vintage Omega watch', 'Nikon D850 camera body'), you MUST RANK accessories (e.g., watch straps, camera bags unless the query *is* for an accessory) much lower or exclude them if they are clearly not what the user is looking for.
+*   **Ranking Order AFTER Relevance:**
+    1.  Strong Relevance to "{{query}}"
+    2.  Time Sensitivity (Ending Soonest for relevant, good value items)
+    3.  Potential Value & Bidding Dynamics (Price vs. market value, bid count)
+    4.  Seller Credibility & Trust (High reputation >90-95% with good feedback count is preferred)
+    5.  Item Condition (New/Refurbished generally better unless Used is exceptional value)
+    6.  Rarity Score (As per definition provided below)
+Filter out auctions *only if* they are:
+    a) Clearly IRRELEVANT to a specific query "{{query}}".
+    b) Accessories when the query "{{query}}" is for a main product.
+    c) From sellers with critically low credibility (e.g., reputation far below 90% AND very few reviews).
+Return an array of the auction objects (including your assigned 'rarityScore'), sorted from the best to worst. It's expected you'll return many items if the input list is relevant.
 {{else}}
-The user query might be more general (e.g., a system-generated curation request). Focus on overall auction quality, credibility, and potential value, but still be mindful of not including accessories if the general intent suggests a main product category.
+INSTRUCTIONS FOR GENERAL CURATION (Query: "{{query}}")
+For general curation, focus on overall auction quality: credibility, potential value, items ending soon, and interesting/rare finds. Assign rarity scores. Rank accordingly. Be mindful of not including accessories if the general intent suggests a main product category. Aim to return a good selection of qualified auctions.
 {{/if}}
 
-Auctions to Qualify, Re-rank, and Score for Rarity (up to {{auctions.length}}):
+Auctions to Re-rank and Score for Rarity (up to {{auctions.length}}):
 {{#each auctions}}
 - ID: {{id}}
   Title: "{{title}}"
@@ -139,31 +152,14 @@ Auctions to Qualify, Re-rank, and Score for Rarity (up to {{auctions.length}}):
   Bid Count: {{bidCount_or_default bidCount 0}}
 {{/each}}
 
-For each auction you qualify:
+For each auction you include:
 1.  Assess its **Rarity Score (0-100)**.
     *   **LOWER** scores (0-40) for common, easily available, mass-produced items.
     *   **MEDIUM** scores (41-70) for items that are less common, specific models, or good condition vintage.
     *   **HIGHER** scores (71-100) for genuinely hard-to-find items: vintage in excellent condition, limited editions, very specific/uncommon configurations, or exceptionally rare finds.
 
-Consider these factors for your final ranking, qualification, and rarity scoring, in this order of importance:
-1.  **Relevance to Query:**
-    *   {{#if query_is_specific query}}
-        **CRITICAL FOR THIS TASK:** The item MUST be a strong, direct match for the user's query: "{{query}}". Items that are vaguely related or accessories (unless the query is FOR an accessory) should be disqualified or ranked very low.
-        {{else}}
-        The item must be a strong match for the user's query: "{{query}}". Deprioritize items that are accessories if the main product was likely searched.
-        {{/if}}
-2.  **Credibility & Trust:**
-    *   Prioritize sellers with high reputation (e.g., > 95%) and a significant number of feedback/reviews (e.g. > 50-100).
-3.  **Potential Value & Bidding Dynamics:**
-    *   Consider the current bid price relative to the item's typical market value and rarity.
-4.  **Time Sensitivity:**
-    *   Auctions ending very soon are high priority if they represent good value and are relevant.
-5.  **Condition:**
-    *   New or Manufacturer Refurbished items are generally preferred over Used, unless the price for Used is exceptionally good and the seller is highly reputable.
-6.  **Rarity:** Use the Rarity Score criteria defined above.
-
-Return an array of the qualified auction objects (including all original fields and your assigned 'rarityScore'), sorted from the best auction to the worst.
-The array can contain fewer items than the input if some auctions are not qualified.
+Return an array of the auction objects (including all original fields and your assigned 'rarityScore'), sorted from the best auction to the worst according to the criteria above.
+The array can contain fewer items than the input if some auctions are not suitable based on the filtering rules, but for specific queries, aim to be inclusive.
 Example response format for 1 qualified auction:
 [
   {
@@ -179,33 +175,35 @@ Example response format for 1 qualified auction:
     "rarityScore": 75
   }
 ]
-Example response format if no auctions qualified: []`,
+Example response format if no auctions deemed suitable (should be rare for specific queries if input has items): []`,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     timeLeft_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     bidCount_or_default: (value: number | undefined, defaultValue: number): number => value ?? defaultValue,
     query_is_specific: (query: string) => {
       const qLower = query.toLowerCase();
-      // System-generated queries for curated content or background tasks
       const systemQueryPatterns = [
-        "general curated auction", // Catches "general curated auctions", "general curated auction initial", "general curated auction more"
+        "general curated auction", 
         "background cache",
-        "top-up/soft refresh" // Though less common for auctions, include for robustness
+        "top-up/soft refresh" 
       ];
-      // Simple generic terms a user might hypothetically type
       const simpleGenericTerms = ["auctions", "bids", "live auctions"];
 
-      if (!query || qLower.trim().length < 3) return false; // Too short to be specific
+      if (!query || qLower.trim().length < 3) return false; 
 
-      // Check if it's a system query
       if (systemQueryPatterns.some(pattern => qLower.includes(pattern))) {
         return false;
       }
-      // Check if it's one of the simple generic terms
       if (simpleGenericTerms.includes(qLower)) {
         return false;
       }
-      return true; // Otherwise, assume it's a specific user query
+      if (qLower.endsWith(" initial") || qLower.endsWith(" more")) {
+          const baseQuery = qLower.replace(" initial", "").replace(" more", "");
+          if (systemQueryPatterns.some(pattern => baseQuery.includes(pattern))) {
+              return false;
+          }
+      }
+      return true; 
     }
   }
 });
@@ -232,6 +230,7 @@ const qualifyAuctionsFlow = ai.defineFlow(
       }
 
       if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length > 0) {
+         console.info(`[qualifyAuctionsFlow] AI returned 0 auctions for query "${input.query}" from ${input.auctions.length} inputs. This is an explicit AI decision.`);
         return [];
       }
       if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length === 0) {
@@ -270,4 +269,3 @@ const qualifyAuctionsFlow = ai.defineFlow(
     }
   }
 );
-

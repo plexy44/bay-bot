@@ -101,20 +101,28 @@ const rankDealsPrompt = ai.definePrompt({
   output: {
     schema: RankedDealIdsOutputSchema,
   },
-  prompt: `You are an expert shopping assistant specializing in finding the best deals. The following list of deals has already been pre-filtered and sorted by the system (typically by highest discount first if available, or by relevance).
-Your task is to QUALIFY and RE-RANK these deals based on overall credibility, value, and relevance to the user's query.
-Return ONLY an array of the deal IDs for items you deem qualified, sorted from the best deal to the worst.
+  prompt: `You are an expert shopping assistant specializing in finding the best deals.
+The following list of deals has been pre-filtered by the system.
+Your task is to return ONLY an array of the deal IDs for items you deem qualified, sorted from the best deal to the worst.
 If you deem no items are qualified, return an empty array.
 
 User Query: "{{query}}"
 
 {{#if query_is_specific query}}
-IMPORTANT: The user has provided a specific query: "{{query}}".
-Your primary goal is to find items that are an EXACT or VERY STRONG match to this query.
-Then, among those highly relevant items, you must prioritize those with genuine and substantial discounts.
-Accessories (e.g., cases, screen protectors, chargers, cables, bags, lenses) MUST be filtered out if the query is for a main product (e.g., 'iPhone 15', 'Dell laptop', 'Sony camera'), UNLESS the query ITSELF is specifically for an accessory (e.g., 'iPhone 15 case', 'laptop charger'). For very broad specific queries like "laptop" or "tv", you still need to ensure the items are actual laptops or TVs, not just minor accessories for them.
+CRITICAL INSTRUCTIONS FOR SPECIFIC USER QUERY: "{{query}}"
+Your task is to return ONLY the IDs of deals that are an EXACT or VERY STRONG match to "{{query}}".
+THEN, from these exact/strong matches, you MUST rank them primarily by the HIGHEST GENUINE DISCOUNT PERCENTAGE.
+This is the ranking hierarchy you MUST follow for specific queries:
+1.  **Exact/Very Strong Relevance to "{{query}}":** This is a non-negotiable filter. If it's not a direct match, DISCARD IT.
+    *   **Accessory Filtering:** Crucially, if "{{query}}" is for a main product (e.g., 'iPhone 15 Pro', 'Dell XPS 15', 'Sony A7 IV camera'), you MUST DISCARD all listings that are only accessories (e.g., phone cases, screen protectors, laptop bags, camera lenses unless the query *is* for a lens). If the query IS for an accessory (e.g., 'iPhone 15 Pro case'), then accessories are relevant. For broad specific queries like "laptops" or "TVs", ensure the item is indeed a laptop or TV, not a minor part or accessory.
+2.  **Highest Genuine Discount Percentage:** Among the directly relevant items, sort them with the highest discount percentage first. A 50% off relevant item is better than a 10% off relevant item. A 20% discount is very good.
+3.  **Seller Credibility & Trust:** For items with similar relevance and discount, prefer sellers with higher reputation (>95%) and more feedback.
+4.  **Item Condition:** Prefer New or Manufacturer Refurbished over Used, unless the Used item has a significantly better discount AND high seller credibility.
+5.  **Price Competitiveness:** Ensure the final price is reasonable for the item, its condition, and discount.
+(Item Rarity is less important for specific searches focused on deals unless it's an exceptionally rare item *also* at a good discount).
 {{else}}
-The user query indicates a general curation request (e.g., "general curated deals"). Focus on overall deal quality, significant discounts, and seller credibility. However, still be mindful of not including accessories if the general intent suggests a main product category.
+INSTRUCTIONS FOR GENERAL CURATION (Query: "{{query}}")
+Focus on overall deal quality, significant discounts, and seller credibility. Be mindful of not including accessories if the general intent suggests a main product category. Rank by a balance of these factors.
 {{/if}}
 
 Deals to Qualify and Re-rank (up to {{deals.length}}):
@@ -128,35 +136,7 @@ Deals to Qualify and Re-rank (up to {{deals.length}}):
   Condition: {{condition_or_default condition "Not specified"}}
 {{/each}}
 
-Consider these factors for your final ranking and qualification, in this order of importance:
-1.  **Relevance to Query:**
-    *   {{#if query_is_specific query}}
-        **CRITICAL FOR THIS TASK:** The item MUST be a strong, direct match for the user's query: "{{query}}".
-        Items that are vaguely related should be ranked significantly lower or disqualified.
-        Accessories (e.g., cases, screen protectors, chargers, cables, bags, lenses) MUST be filtered out if the query is for a main product (e.g., 'iPhone 15', 'Dell laptop', 'Sony camera'), unless the query ITSELF is specifically for an accessory (e.g., 'iPhone 15 case', 'laptop charger').
-        For very broad specific queries like "laptop" or "tv", you still need to ensure the items are actual laptops or TVs, not just minor accessories for them.
-        After establishing strong relevance, other factors like discount and seller credibility will determine the final ranking among these relevant items.
-        {{else}}
-        The item must be a strong match for the user's query: "{{query}}". Deprioritize items that are accessories if the main product was likely searched. For general curation, overall deal appeal is key.
-        {{/if}}
-2.  **Credibility & Trust:**
-    *   Prioritize sellers with high reputation (e.g., > 95%) and a significant number of feedback/reviews (e.g. > 50-100).
-    *   Be wary of deals that seem "too good to be true" despite a high discount if other factors (low seller score, poor title, condition) are concerning.
-3.  **Value (Discount & Price):**
-    *   {{#if query_is_specific query}}
-        Among highly relevant items, a genuine and substantial discount significantly boosts an item's ranking. An exact match with a good discount is ideal.
-        However, an exact match with even a modest discount can still be very valuable to the user and should be preferred over a less relevant item with a larger discount.
-        If a specific query yields many relevant items, prioritize those with better discounts and overall value.
-        {{else}}
-        Genuine, substantial discounts (e.g. > 10-15%) are highly valued. Verify the original price makes sense if provided.
-        {{/if}}
-    *   Ensure the final price is competitive for the item and its condition.
-4.  **Item Rarity/Desirability:** (Subtle factor, less important if query is specific, more so for general curation)
-    *   A rare or highly sought-after item at a good discount might rank higher than a common item with a similar discount.
-5.  **Condition:**
-    *   New or Manufacturer Refurbished items are generally preferred over Used, unless the price for Used is exceptionally good and the seller is highly reputable.
-
-Return ONLY an array of the deal IDs that you qualify, sorted from the best deal (highest credibility, best potential value, and relevance) to the worst.
+Return ONLY an array of the deal IDs that you qualify, sorted from the best deal to the worst based on the criteria above.
 The array can contain fewer IDs than the input if some deals are not qualified.
 Example response format for 3 qualified deals: ["id3", "id1", "id2"]
 Example response format if no deals qualified: []`,
@@ -179,7 +159,6 @@ Example response format if no deals qualified: []`,
       if (simpleGenericTerms.includes(qLower)) {
         return false;
       }
-      // Check for "initial" or "more" often appended to system queries
       if (qLower.endsWith(" initial") || qLower.endsWith(" more")) {
           const baseQuery = qLower.replace(" initial", "").replace(" more", "");
           if (systemQueryPatterns.some(pattern => baseQuery.includes(pattern))) {
@@ -241,6 +220,3 @@ const rankDealsFlow = ai.defineFlow(
     }
   }
 );
-
-
-    
