@@ -240,3 +240,42 @@ body {
 .logo-rainbow-text-glow-loading {
   animation: rainbow-text-glow-animation 1.8s linear infinite;
 }
+
+/* Shimmer effect for hexagon icon */
+@keyframes shimmer-highlight {
+  0% { transform: translateX(-150%) skewX(-30deg); opacity: 0.2; }
+  40% { transform: translateX(0%) skewX(-30deg); opacity: 0.5; }
+  60% { transform: translateX(0%) skewX(-30deg); opacity: 0.5; }
+  100% { transform: translateX(150%) skewX(-30deg); opacity: 0.2; }
+}
+
+.shimmer-effect {
+  position: relative;
+  overflow: hidden; /* Crucial for containing the ::before pseudo-element */
+}
+
+.shimmer-effect::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0; /* Start from left */
+  width: 75%; /* Width of the shimmer ray */
+  height: 100%;
+  background: linear-gradient(
+    to right,
+    hsla(var(--primary-foreground), 0) 0%, /* Transparent start */
+    hsla(var(--primary-foreground), 0.3) 50%, /* Semi-transparent middle (shimmer color) */
+    hsla(var(--primary-foreground), 0) 100% /* Transparent end */
+  );
+  opacity: 0; /* Initially hidden */
+  transition: opacity 0.3s ease-in-out;
+  pointer-events: none; /* Ensure it doesn't block interaction with the SVG */
+}
+
+.shimmer-effect:hover::before {
+  opacity: 1; /* Show on hover */
+  animation: shimmer-highlight 1.5s ease-in-out infinite; /* Trigger animation on hover */
+}
+/* End shimmer effect */
+
+    
