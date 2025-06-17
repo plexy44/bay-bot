@@ -5,7 +5,7 @@ import type React from 'react';
 import { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, AlertTriangle, Info } from "lucide-react"; // Changed Brain back to Info
+import { Loader2, AlertTriangle, Info } from "lucide-react";
 import type { DealScopeItem, AnalysisResult } from '@/types';
 import { analyzeDeal, type AnalyzeDealInput } from '@/ai/flows/analyze-deal';
 
@@ -29,7 +29,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
   const [animatedRarityScore, setAnimatedRarityScore] = useState(0);
 
   useEffect(() => {
-    if (isOpen && item) { // Simplified condition to run for any item
+    if (isOpen && item) {
       const performAnalysis = async () => {
         setIsLoading(true);
         setError(null);
@@ -42,9 +42,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
             title: item.title,
             description: item.description || "N/A",
             price: item.price,
-            // For auctions or deals without originalPrice, AI will get current price as originalPrice
             originalPrice: item.originalPrice || item.price,
-            // For auctions or deals without discount, AI will get 0%
             discountPercentage: item.discountPercentage || 0,
             imageUrl: item.imageUrl,
           };
@@ -79,10 +77,10 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
       <DialogContent className="sm:max-w-[525px] glass-popover">
         <DialogHeader>
           <DialogTitle className="font-headline text-xl flex items-center text-foreground">
-            <Info className="w-5 h-5 mr-2 text-primary" /> AI Analysis: {item.title} {/* Changed icon to Info */}
+            <Info className="w-5 h-5 mr-2 text-primary" /> {item.title}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
-            AI-powered insights for the selected item. {/* Generic description */}
+            AI-powered insights for the selected item.
           </DialogDescription>
         </DialogHeader>
         <div className="py-4 space-y-6">
@@ -99,10 +97,8 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ item, isOpen, onCl
             </div>
           )}
 
-          {/* DealPriceBreakdown is only relevant for deals */}
           {item.type === 'deal' && !isLoading && !error && <DealPriceBreakdown item={item} /> }
 
-          {/* AIScoresDisplay and KeywordPillsDisplay are shown for any item type once analysis is available */}
           {analysis && !isLoading && !error && (
             <>
               <AIScoresDisplay
