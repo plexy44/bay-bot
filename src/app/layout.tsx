@@ -30,6 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className={`${inter.variable} ${spaceGrotesk.variable}`}>
       <head>
+        <meta name='impact-site-verification' value='342c1573-01a2-480e-a731-18147655d971' />
         {/* Theme switcher script */}
         <script
           id="theme-switcher-script"
