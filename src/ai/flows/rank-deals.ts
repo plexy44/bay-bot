@@ -29,8 +29,8 @@ const DealSchema = z.object({
 export type AIDeal = z.infer<typeof DealSchema>;
 
 const RankDealsInputSchema = z.object({
-  viewType: z.literal('Deals').describe('Indicates that the processing is for deals.'),
-  items: z.array(DealSchema).describe('The list of pre-filtered deals to qualify and rank.'),
+  viewType: z.enum(['Deals', 'Auctions']).describe('Indicates that the processing is for deals or auctions.'),
+  items: z.array(DealSchema).describe('The list of pre-filtered deals/auctions to qualify and rank.'),
   query: z.string().describe('The user search query for relevance checking.'),
 });
 
@@ -106,15 +106,19 @@ export async function rankDeals(
 }
 
 const rankDealsPrompt = ai.definePrompt({
-  name: 'curateAndSortItemsPromptV4', // Incremented version due to significant logic change
+  name: 'curateAndSortItemsV7',
   input: {
     schema: RankDealsInputSchema,
   },
   output: {
     schema: RankDealsOutputSchema, 
   },
-  prompt: `You are an eBay deals sorting and filtering engine.
-Input: User Search Query: "{{query}}", Item List (up to {{items.length}} items):
+  prompt: `You are an expert e-commerce curator with a deep understanding of the eBay marketplace. Your primary function is to intelligently sort and filter a provided list of items to create the most valuable and relevant view for the user. You must be precise and follow the rules strictly.
+
+You will be given:
+View Type: "{{viewType}}"
+User Search Query: "{{query}}"
+Item List (up to {{items.length}} items):
 {{#each items}}
 - ID: {{id}}
   Title: "{{title}}"
@@ -123,37 +127,45 @@ Input: User Search Query: "{{query}}", Item List (up to {{items.length}} items):
   Discount: {{discountPercentage}}%
   Seller Reputation: {{sellerReputation}}% ({{sellerFeedbackScore}} reviews)
   Condition: {{condition_or_default condition "Not specified"}}
+  {{#if timeLeft}}Time Left: {{timeLeft}}{{/if}}
+  {{#if bidCount}}Bid Count: {{bidCount}}{{/if}}
 {{/each}}
 
-Output: Sorted and filtered JSON array of items.
-
-RULES:
+Based on the View Type, follow the corresponding logic below.
 
 {{#eq viewType "Deals"}}
-1.  INITIAL FILTERING (Strict - Apply First):
-    a.  RELEVANCE:
-        -   If User Search Query ("{{query}}") is specific (e.g., "iPhone 15", "Nike Air Max 90"): Item title MUST closely match. Vague matches are DISCARDED.
-        -   If User Search Query ("{{query}}") is broad (e.g., "laptop", "shoes"): Item MUST clearly be of that category.
-    b.  ACCESSORY ELIMINATION (for Main Product Queries):
-        -   If User Search Query ("{{query}}") is for a main product (e.g., "iPhone", "Macbook", "PS5 console"): AGGRESSIVELY DISCARD accessories (cases, chargers, screen protectors, cables, empty boxes, stands, bags, straps, manuals), even if the accessory mentions the main product. ONLY THE CORE PRODUCT IS VALID.
-        -   If User Search Query ("{{query}}") IS for an accessory (e.g., "iPhone 15 case", "laptop charger"): Accessories ARE VALID.
-    c.  SCAM & LOW-QUALITY ELIMINATION:
-        -   DISCARD items with titles/descriptions indicating: "box only", "empty box", "for parts", "not working", "damaged", "spares or repair", "read description" (if it implies issues and is not a query for such items).
-        -   DISCARD items with absurdly low prices for the product type (e.g., new flagship phone for £1). These are likely accessories, scams, or mislistings.
+Your goal is to find the best-value items that are highly relevant to the user's query, with the highest discounts displayed first.
 
-2.  PRIMARY SORTING (Apply to ALL items that passed Step 1):
-    -   Sort items STRICTLY in DESCENDING order by \`discountPercentage\`.
-    -   Highest \`discountPercentage\` comes FIRST.
-    -   Items with no discount (0% or missing original price data) go to the VERY BOTTOM, after all discounted items.
+You will perform the following steps in THIS EXACT SEQUENCE:
 
-3.  SECONDARY SORTING (TIE-BREAKING ONLY for items with IDENTICAL \`discountPercentage\`):
-    -   If \`discountPercentage\` is the same, then prefer:
-        1.  Stronger keyword relevance to User Search Query ("{{query}}").
-        2.  Higher \`sellerReputation\` and \`sellerFeedbackScore\`.
+PART A: HARD FILTERING
+Apply these filters to the 'Item List' to REMOVE ALL non-compliant items. Only items passing ALL these checks proceed to Part B.
+1.  STRICT KEYWORD RELEVANCE to User Search Query ("{{query}}"):
+    -   Items MUST be a strong, direct match to "{{query}}".
+    -   ACCESSORY ELIMINATION: If "{{query}}" is for a main product (e.g., "iPhone 15", "laptop"), you MUST DISCARD all accessories (cases, chargers, screen protectors, cables, empty boxes, stands, bags, straps, manuals, etc.), even if they mention the main product. ONLY THE CORE PRODUCT IS VALID.
+    -   EXCEPTION: If "{{query}}" IS for an accessory (e.g., "iPhone 15 case", "laptop charger"), then accessories ARE RELEVANT.
+2.  SCAM & IRRELEVANT CONTENT ELIMINATION:
+    -   DISCARD listings indicating: "box only", "empty box", "for parts", "not working", "damaged", "spares or repair".
+    -   DISCARD listings with absurdly low prices for the product type (e.g., a new iPhone for £1), as these are likely scams or miscategorized accessories.
+
+PART B: MANDATORY SORTING of Filtered Items
+Take ALL items that PASSED Part A. You will now sort THIS FILTERED LIST.
+1.  **ABSOLUTE PRIMARY SORT RULE: \`discountPercentage\` (Highest to Lowest)**
+    -   You MUST sort the filtered items STRICTLY and SOLELY by their \`discountPercentage\` field in DESCENDING order.
+    -   An item with a \`discountPercentage\` of 80% MUST be listed before an item with 68%.
+    -   An item with a \`discountPercentage\` of 68% MUST be listed before an item with 25%.
+    -   An item with a \`discountPercentage\` of 25% MUST be listed before an item with 6%.
+    -   This rule is PARAMOUNT. NO OTHER FACTOR OVERRIDES THIS for items with positive discounts.
+2.  TIE-BREAKING (ONLY for items with IDENTICAL \`discountPercentage\`):
+    -   If, AND ONLY IF, two or more items have the EXACT SAME \`discountPercentage\`, then use these secondary criteria IN ORDER to break the tie:
+        a.  Stronger keyword relevance to User Search Query ("{{query}}").
+        b.  Higher \`sellerReputation\` and \`sellerFeedbackScore\`.
+3.  PLACEMENT OF ITEMS WITH ZERO OR NO DISCOUNT:
+    -   Any items that passed Part A filters but have a \`discountPercentage\` of 0 (or no \`discountPercentage\` data) MUST be placed at the VERY BOTTOM of the final list, AFTER all items with positive discounts have been sorted according to the rules above.
 {{/eq}}
 
 {{#eq viewType "Auctions"}}
-Your goal is to find interesting and relevant auctions that the user can participate in for the User Search Query: "{{query}}".
+Your goal is to find interesting and relevant auctions for the User Search Query: "{{query}}".
 
 INITIAL FILTERING (Apply Before Sorting):
 1.  RELEVANCE TO QUERY ("{{query}}"):
@@ -177,7 +189,7 @@ MINIMUM LIST SIZE: Aim for AT LEAST 16 relevant auctions. If filters result in f
 
 MANDATORY OUTPUT:
 -   Return ONLY the sorted JSON array of items.
--   Use the exact original item JSON structure and fields.
+-   Use the exact original item JSON structure and fields (including \`rarityScore\` for auctions if \`viewType\` is "Auctions").
 -   NO commentary, NO summaries, NO explanations.
 -   If no items pass filters, return an empty array: [].
 Example response format for Deals (shows 2 qualified deals, sorted by discount):
@@ -205,28 +217,19 @@ Example response format for Deals (shows 2 qualified deals, sorted by discount):
     "condition": "New"
   }
 ]
-Example response format for Auctions (shows 1 qualified auction):
-[
-  {
-    "id": "id_auction1",
-    "title": "Example Auction Title",
-    "price": 50.00,
-    "sellerReputation": 98,
-    "sellerFeedbackScore": 150,
-    "imageUrl": "http://example.com/auction_image.jpg",
-    "condition": "Used",
-    "timeLeft": "1d 2h left",
-    "bidCount": 5,
-    "rarityScore": 75
-  }
-]
 Example response format if no items deemed suitable: []
+
+❗Final Reminder:
+1.  For "Deals", after performing the HARD FILTERING in Part A, your MOST IMPORTANT task is the MANDATORY SORTING in Part B.
+2.  **THE ABSOLUTE PRIMARY SORT RULE for "Deals" is \`discountPercentage\` in DESCENDING order. This is not optional and overrides all other considerations for items with different positive discounts.**
+3.  You are re-ordering and filtering the provided 'Item List'. Do not add, remove, or alter fields in the original JSON objects, except for \`rarityScore\` when processing "Auctions".
+4.  Output ONLY the sorted JSON array. No commentary. If no items pass filters, return an empty array: [].
 `,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     timeLeft_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue, 
     bidCount_or_default: (value: number | undefined, defaultValue: number): number => value ?? defaultValue, 
-    eq: (arg1, arg2) => arg1 === arg2,
+    eq: (arg1: string, arg2: string) => arg1 === arg2,
   }
 });
 
@@ -248,7 +251,8 @@ const rankDealsFlow = ai.defineFlow(
           console.warn(
           `[rankDealsFlow] AI ranking (full objects) prompt returned null/undefined. Query: "${input.query}". Deals count: ${input.items.length}. Falling back to original deal list order.`
           );
-          return input.items; 
+          // Fallback to sorting by discount client-side if AI fails, to at least attempt the primary rule.
+          return input.items.sort((a, b) => (b.discountPercentage || 0) - (a.discountPercentage || 0));
       }
 
       const originalDealIds = new Set(input.items.map(deal => deal.id));
@@ -256,6 +260,10 @@ const rankDealsFlow = ai.defineFlow(
         if (!originalDealIds.has(deal.id)) {
           console.warn(`[rankDealsFlow] AI returned deal with ID "${deal.id}" which was not in the original input. Discarding.`);
           return false;
+        }
+        // Ensure discountPercentage is a number, default to 0 if missing/invalid for safety, though AI should return it.
+        if (typeof deal.discountPercentage !== 'number') {
+            deal.discountPercentage = 0;
         }
         return true;
       });
@@ -270,11 +278,24 @@ const rankDealsFlow = ai.defineFlow(
           }
       });
 
-      return Array.from(uniqueValidatedDealsMap.values());
+      // Final check to ensure AI adhered to sorting, primarily for debugging.
+      // The AI is expected to return the items already sorted.
+      const aiSortedList = Array.from(uniqueValidatedDealsMap.values());
+      // For debugging:
+      // const isCorrectlySorted = aiSortedList.every((item, index, arr) => {
+      //   if (index === 0) return true;
+      //   return (item.discountPercentage || 0) <= (arr[index - 1].discountPercentage || 0);
+      // });
+      // if (!isCorrectlySorted) {
+      //   console.warn(`[rankDealsFlow] AI may not have sorted correctly by discountPercentage for query "${input.query}". First few discounts:`, aiSortedList.slice(0, 5).map(d => d.discountPercentage));
+      // }
+      return aiSortedList;
 
     } catch (e) {
-      console.error(`[rankDealsFlow] Failed to rank deals for query "${input.query}", returning original list. Error:`, e);
-      return input.items; 
+      console.error(`[rankDealsFlow] Failed to rank deals for query "${input.query}", returning original list sorted by discount. Error:`, e);
+      // Fallback to sorting by discount client-side if AI fails
+      return input.items.sort((a, b) => (b.discountPercentage || 0) - (a.discountPercentage || 0));
     }
   }
 );
+
