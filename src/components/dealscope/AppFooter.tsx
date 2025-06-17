@@ -34,12 +34,12 @@ export const AppFooter: React.FC = () => {
             <svg
               className="w-6 h-6 text-primary block"
               fill="currentColor"
+              fillRule="evenodd"
               viewBox="0 0 24 24"
               xmlns="http://www.w3.org/2000/svg"
               aria-hidden="true"
             >
-              {/* Changed path to a square */}
-              <path d="M4 4 H20 V20 H4 Z" />
+              <path d="M3,3 H21 V21 H3 Z M7,7 H17 V17 H7 Z" />
             </svg>
           </a>
           <ThemeToggle />
