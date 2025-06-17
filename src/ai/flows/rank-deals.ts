@@ -106,16 +106,16 @@ export async function rankDeals(
 }
 
 const rankDealsPrompt = ai.definePrompt({
-  name: 'curateAndSortItemsPromptDeals',
+  name: 'curateAndSortItemsPromptV3',
   input: {
     schema: RankDealsInputSchema,
   },
   output: {
     schema: RankDealsOutputSchema, 
   },
-  prompt: `You are an expert e-commerce curator specializing in the eBay marketplace. Your core function is to rank and filter a given list of eBay items for the user. Your primary goal is to display the best-value deals first based strictly on percentage discount, while filtering out irrelevant or low-quality results.
+  prompt: `You are an expert e-commerce curator with a deep understanding of the eBay marketplace. Your primary function is to intelligently sort and filter a provided list of items to create the most valuable and relevant view for the user. You must be precise but not overly strict, always aiming to provide a useful selection.
 
-You will be provided with:
+You will be given three pieces of information:
 
 View Type: "{{viewType}}"
 User Search Query: "{{query}}"
@@ -130,36 +130,60 @@ Item List (up to {{items.length}} items):
   Condition: {{condition_or_default condition "Not specified"}}
 {{/each}}
 
-Your Mission: Curate and return a fully sorted and filtered version of the item list based only on the available data.
+Based on the View Type, follow the corresponding logic below.
 
-Step 1: Relevance Filtering (The Great Filter)
-Apply these filters before sorting:
+{{#eq viewType "Deals"}}
+Your goal is to find the best-value items with the highest discounts for the User Search Query: "{{query}}".
+You will execute the following steps in this exact order:
 
-Strict Keyword Matching:
-Only include items that directly relate to the user's intent.
-If the query contains a specific brand or model (e.g., "iPhone"), you must exclude accessories (cases, chargers, screen protectors, empty boxes).
-If the query is vague (e.g., "phone"), be slightly more inclusive but prioritize full products over accessories.
+🔍 Step 1: Relevance Filtering (The Great Filter)
+Apply these filters IN ORDER before any sorting:
+  1.1 Strict Keyword Matching:
+      Only include items that directly relate to the user's Search Query: "{{query}}".
+      If the query contains a specific brand or model (e.g., "iPhone"), you MUST AGGRESSIVELY exclude accessories (cases, chargers, screen protectors, empty boxes, etc.) unless the query ITSELF is for an accessory. The user wants the core product.
+      If the query is vague (e.g., "phone"), be slightly more inclusive but still prioritize full products over accessories.
+  1.2 Scam Filtering - Price Sanity:
+      If an item's price seems absurdly low for the product type given the query (e.g., a new iPhone for £10), exclude it as likely a scam or an irrelevant accessory listing. Consider these extremely low quality.
 
-Scam Filtering - Price Sanity:
-If a listing's price is suspiciously low for the product category (e.g., £10 for a new iPhone), exclude it as likely a scam or an irrelevant listing.
+📊 Step 2: MANDATORY Primary Sorting by Discount Percentage (Highest First)
+After completing ALL filtering in Step 1, you MUST sort the remaining qualified items.
+The **ONLY** primary sorting key for these relevant, filtered items is \`discountPercentage\`.
+You MUST sort these items in **STRICTLY DESCENDING ORDER** of \`discountPercentage\`.
+An item with a 50% discount MUST appear before an item with a 49% discount. An item with a 49% discount MUST appear before an item with a 48% discount, and so on. There are NO exceptions to this primary sorting rule for items with a positive discount.
 
-Step 2: Sorting by Discount
-Your primary sorting rule is highest percentage discount first.
-Use the item's original and current price to calculate: percentage_off = ((original_price - current_price) / original_price) * 100
-Items with a higher percentage off must always appear first.
-If some items have no percentage discount or no original price data, they must be placed at the very bottom of the list.
+⚖️ Step 3: Secondary Ranking (Tie-Breaking ONLY for Identical Discounts)
+ONLY IF two or more relevant items have the EXACT SAME \`discountPercentage\` after Step 2, should you then use the following criteria, in order, as tie-breakers:
+  3.1 Keyword Relevance: An item that is an exact match for the user's query ("{{query}}") is more valuable than a partial match.
+  3.2 Seller Quality: Prefer sellers with higher \`sellerReputation\` and \`sellerFeedbackScore\`.
 
-Step 3: Secondary Ranking (Only if percentages are equal)
-For items with equal discount percentage, use the following order of preference:
-1. Keyword Relevance: Exact query matches are ranked higher.
-2. Seller Quality: Prefer sellers with higher feedback ratings.
+📉 Step 4: Final Placement for Non-Discounted Items
+Items that passed all filters in Step 1 but have NO \`discountPercentage\` (i.e., \`discountPercentage\` is 0 or not present) MUST be placed at the very bottom of the sorted list, AFTER all items with a positive \`discountPercentage\` have been listed in their correct descending discount order as per Step 2 and 3.
+{{/eq}}
 
-Output Format (Strict)
-Return only the sorted JSON array, with no added or removed fields.
-Do not include any commentary, logs, or summaries.
-Output must be a valid JSON array of items, in the exact format received.
+{{#eq viewType "Auctions"}}
+Your goal is to find interesting and relevant auctions that the user can participate in for the User Search Query: "{{query}}".
 
-Example response format for 2 qualified deals:
+Initial Filter & Relevance:
+Keyword Relevance: Items that are a strong match for the user's query "{{query}}" should be prioritized. Filter out accessories like cases, chargers, etc., if the query is for a main product (e.g., "vintage Omega watch"). If the query is for an accessory (e.g. "watch strap"), then accessories are relevant.
+Seller Credibility: Consider items from sellers with reasonable \`sellerReputation\` and \`sellerFeedbackScore\`. Avoid sellers with critically low scores unless the item is exceptionally rare and clearly described.
+
+Primary Sorting: Your primary sorting logic is soonest to end. Auctions ending in the near future are more urgent and valuable.
+
+Secondary Sorting & Ranking: For items ending at similar times, apply this logic:
+  1. Keyword Relevance: Stronger matches for "{{query}}" are preferred.
+  2. Potential Value & Bidding Dynamics: Consider current \`price\`, \`bidCount\`.
+  3. Seller Reputation.
+  4. Condition.
+
+Rarity Assessment: For each auction you include, assign a \`rarityScore\` (0-100). Lower scores (0-40) for common items, medium (41-70) for less common or good condition vintage, higher (71-100) for genuinely hard-to-find items (vintage, limited edition, very specific configurations, or truly exceptional short-lived deals on popular items making them scarce at that price).
+
+Minimum Viable List: Your goal is to present a healthy list of at least 16 auctions. If your initial quality filtering results in fewer than 16 items, you should be less strict and include more auctions that are a reasonable match for the user's query, even if they end further in the future. Ensure you still assign a \`rarityScore\` to all included items.
+{{/eq}}
+
+Mandatory Final Instruction:
+
+After applying the logic for the given "{{viewType}}", you must return the entire, re-ordered list of items in the exact original JSON format, matching the schema of the items (including the 'rarityScore' for auctions if applicable). Do not add, remove, or alter any fields in the JSON objects beyond what the schema allows. Do not add any text, explanation, or summary. Your only output is the complete, sorted JSON array of qualified items. If no items are qualified, return an empty array: [].
+Example response format for Deals (shows 2 qualified deals, sorted by discount):
 [
   {
     "id": "id_high_discount_relevant",
@@ -184,18 +208,37 @@ Example response format for 2 qualified deals:
     "condition": "New"
   }
 ]
-Example if no items qualified: []
+Example response format for Auctions (shows 1 qualified auction):
+[
+  {
+    "id": "id_auction1",
+    "title": "Example Auction Title",
+    "price": 50.00,
+    "sellerReputation": 98,
+    "sellerFeedbackScore": 150,
+    "imageUrl": "http://example.com/auction_image.jpg",
+    "condition": "Used",
+    "timeLeft": "1d 2h left",
+    "bidCount": 5,
+    "rarityScore": 75
+  }
+]
+Example response format if no items deemed suitable: []
 
-Final Reminder:
+❗Final Reminder:
 You must always:
-- Return deals with the highest percentage off first.
-- Show only relevant and trustworthy listings.
-- Never hallucinate, fabricate, or guess any data or fields.
-- Work strictly within the data provided by the eBay API.
+1.  {{#eq viewType "Deals"}}**CRITICALLY AND ABSOLUTELY: After relevance filtering (Step 1), return relevant deals sorted with the HIGHEST \`discountPercentage\` FIRST (Step 2). This is the most important instruction for sorting. Items with lower discounts or no discount MUST appear after items with higher discounts.**{{/eq}}
+    {{#eq viewType "Auctions"}}**CRITICALLY: After relevance filtering, return relevant auctions sorted primarily by ending soonest, then by other auction-specific criteria. Assign \`rarityScore\` to all included auctions.**{{/eq}}
+2.  Show only relevant and trustworthy listings based on Step 1 filters (for Deals) or Initial Filter & Relevance (for Auctions).
+3.  Never hallucinate, fabricate, or guess any data or fields.
+4.  Work strictly within the data provided in the 'Item List'.
+5.  Return only the sorted JSON array of item objects in the exact original format, containing all original fields plus your assigned \`rarityScore\` if applicable (for auctions). Do not add any other text, explanation, or summary. If no items are qualified, return an empty array: [].
 `,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
-    eq: (arg1, arg2) => arg1 === arg2, // Retained for potential future use if prompt logic evolves
+    timeLeft_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue, // Kept for auctions
+    bidCount_or_default: (value: number | undefined, defaultValue: number): number => value ?? defaultValue, // Kept for auctions
+    eq: (arg1, arg2) => arg1 === arg2,
   }
 });
 
