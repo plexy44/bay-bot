@@ -22,18 +22,18 @@ export const DealPriceBreakdown: React.FC<DealPriceBreakdownProps> = ({ item }) 
         Deal Breakdown
       </h4>
       <div className="flex justify-between items-center">
-        <span className="text-sm text-muted-foreground">Current Price:</span>
+        <span className="text-sm text-foreground">Current Price:</span>
         <span className="text-lg font-bold text-primary">£{item.price.toFixed(2)}</span>
       </div>
       {item.originalPrice && item.originalPrice > item.price && (
         <div className="flex justify-between items-center">
-          <span className="text-sm text-muted-foreground">Original Price:</span>
+          <span className="text-sm text-foreground">Original Price:</span>
           <span className="text-sm text-muted-foreground line-through">£{item.originalPrice.toFixed(2)}</span>
         </div>
       )}
       {item.discountPercentage && item.discountPercentage > 0 && (
         <div className="flex justify-between items-center">
-          <span className="text-sm text-muted-foreground">You Save:</span>
+          <span className="text-sm text-foreground">You Save:</span>
           <Badge variant="destructive" className="text-sm">
             {/* Removed Percent icon, just show number and % symbol */}
             {item.discountPercentage}%
@@ -43,4 +43,3 @@ export const DealPriceBreakdown: React.FC<DealPriceBreakdownProps> = ({ item }) 
     </div>
   );
 };
-
