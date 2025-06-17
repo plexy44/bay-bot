@@ -68,7 +68,7 @@ body {
     --secondary-foreground: 210 40% 98%; /* Light gray text on secondary */
 
     --muted: hsl(var(--secondary));     /* Use secondary color for muted backgrounds */
-    --muted-foreground: 210 40% 80%;  /* Slightly dimmer light gray for muted text */
+    --muted-foreground: 210 40% 90%;  /* Slightly dimmer light gray for muted text - Lightness increased from 80% to 90% */
 
     --accent: hsl(var(--secondary));    /* Use secondary for accent as per PRD for "muted elements and subtle highlights" */
     --accent-foreground: hsl(var(--foreground)); /* Light gray text on accent */
@@ -283,6 +283,6 @@ body {
   animation: shimmer-highlight 1s ease-in-out infinite; /* Animation duration reduced for faster scroll */
 }
 /* End shimmer effect */
-
+    
 
     
