@@ -99,8 +99,8 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
             priority={false}
           />
 
-          {/* AI Analysis Trigger: For Deals with Discount (Icon + Text) */}
-          {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 && (
+          {/* AI Analysis Trigger */}
+          {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 ? (
             <Badge
               className="absolute top-3 right-3 rainbow-badge-animated px-2 py-0.5 text-xs flex items-center gap-1 cursor-pointer"
               onClick={() => onAnalyze(item)}
@@ -112,10 +112,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
               <Info className="h-3 w-3 text-white text-shadow-strong" />
               <span className="text-white text-shadow-strong">{item.discountPercentage}% OFF</span>
             </Badge>
-          )}
-
-          {/* AI Analysis Trigger: For Auctions OR Deals WITHOUT Discount (Icon Only) */}
-          {!(item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0) && (
+          ) : (
             <Badge
               className="absolute top-3 right-3 rainbow-badge-animated p-1.5 text-xs flex items-center justify-center cursor-pointer"
               onClick={() => onAnalyze(item)}
@@ -166,7 +163,12 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
           )}
           <div className="flex items-center">
             <ShieldCheck className="h-3.5 w-3.5 mr-1.5" />
-            <span>Seller Score: {item.sellerReputation.toFixed(0)}%</span>
+            <span>
+              Seller Score: {item.sellerReputation.toFixed(0)}%
+              {typeof item.sellerFeedbackScore === 'number' && (
+                <span className="ml-1">({item.sellerFeedbackScore.toLocaleString()})</span>
+              )}
+            </span>
           </div>
 
           {item.type === 'auction' && typeof item.rarityScore === 'number' && (
