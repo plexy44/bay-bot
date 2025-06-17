@@ -129,7 +129,7 @@ export const MIN_SELLER_REPUTATION_THRESHOLD = 80; // Minimum seller reputation 
 export const MIN_DEAL_DISCOUNT_THRESHOLD = 5; // Minimum discount percentage for a deal to be considered (e.g., 5%)
 
 export const MIN_DESIRED_CURATED_ITEMS = 16;
-export const MAX_CURATED_FETCH_ATTEMPTS = 3; // Max keywords for a single curated fetch batch
+export const MAX_CURATED_FETCH_ATTEMPTS = 3; // Max keywords for a single curated fetch batch during "Load More"
 export const MIN_AI_QUALIFIED_ITEMS_THRESHOLD = 6;
 
 export const CURATED_DEALS_CACHE_KEY = 'cachedCuratedDeals';
@@ -149,3 +149,6 @@ export const SEARCHED_AUCTIONS_CACHE_KEY_PREFIX = 'searchedAuctionsCache__';
 
 // For backend pagination / infinite scroll
 export const API_FETCH_LIMIT = 24; // Number of items to fetch per API call for pagination
+
+// For curated "Load More" persistence
+export const MAX_CURATED_LOAD_MORE_TRIES = 3; // Number of times "Load More" can be clicked for curated, even if an attempt yields 0 new items.
