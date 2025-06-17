@@ -38,10 +38,8 @@ export const AppFooter: React.FC = () => {
               xmlns="http://www.w3.org/2000/svg"
               aria-hidden="true"
             >
-              <path
-                d="M12 2 L2 7 L2 17 L12 22 L22 17 L22 7 Z M12 6 L6 9 L6 15 L12 18 L18 15 L18 9 Z"
-                fillRule="evenodd"
-              />
+              {/* Changed path to a square */}
+              <path d="M4 4 H20 V20 H4 Z" />
             </svg>
           </a>
           <ThemeToggle />
