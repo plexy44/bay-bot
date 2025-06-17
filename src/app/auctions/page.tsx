@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info, Loader2 } from "lucide-react";
 import { useItemPageLogic } from '@/hooks/useItemPageLogic';
+import { API_FETCH_LIMIT } from '@/lib/constants';
 
 const AnalysisModal = dynamic(() =>
   import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
@@ -24,9 +25,10 @@ function AuctionsPageContent() {
     inputValue,
     setInputValue,
     displayedItems,
-    allItems,
-    isLoading, // pageIsLoading
-    isRanking, // pageIsRanking
+    isLoading, 
+    isRanking, 
+    isLoadingMore,
+    hasMoreBackendItems,
     error,
     isAuthError,
     selectedItemForAnalysis,
@@ -37,11 +39,10 @@ function AuctionsPageContent() {
     handleLoadMore,
     handleAnalyzeItem,
     handleKeywordSearchFromModal,
-    handleAuctionEnd, // Specific to auctions
+    handleAuctionEnd,
     noItemsTitle,
     noItemsDescription,
     activeItemsForNoMessageCount,
-    ITEMS_PER_PAGE,
   } = useItemPageLogic('auction');
 
 
@@ -52,7 +53,7 @@ function AuctionsPageContent() {
         onSearchInputChange={setInputValue}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={handleLogoClick}
-        isLoading={isLoading} // Changed from isLoading || isRanking
+        isLoading={isLoading}
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
@@ -63,7 +64,7 @@ function AuctionsPageContent() {
           </Alert>
         )}
 
-        {(isLoading || (isRanking && displayedItems.length === 0 && allItems.length === 0)) && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} /> }
+        {isLoading && displayedItems.length === 0 && <ItemGridLoadingSkeleton count={API_FETCH_LIMIT / 2} />}
 
         {!isLoading && !isRanking && displayedItems.length === 0 && activeItemsForNoMessageCount === 0 && !error && (
            <NoItemsMessage title={noItemsTitle} description={noItemsDescription} />
@@ -81,19 +82,35 @@ function AuctionsPageContent() {
                 />
               ))}
             </div>
-            { displayedItems.length < activeItemsForNoMessageCount && (
-              <div className="text-center">
-                <Button onClick={handleLoadMore} size="lg" variant="outline">
-                  <ShoppingBag className="mr-2 h-5 w-5" /> Load More Auctions
-                </Button>
-              </div>
-            )}
           </>
         )}
-         {(isLoading || isRanking) && displayedItems.length > 0 && (
+        { (isLoading || isRanking) && displayedItems.length > 0 && !isLoadingMore && (
             <div className="text-center py-4 text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin inline mr-2" />
-                Loading more items...
+                 {isRanking ? "AI Processing..." : "Loading..."}
+            </div>
+        )}
+
+        {displayedItems.length > 0 && hasMoreBackendItems && !isLoading && (
+            <div className="text-center">
+            <Button onClick={handleLoadMore} disabled={isLoadingMore} size="lg" variant="outline">
+                {isLoadingMore ? (
+                <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Loading More...
+                </>
+                ) : (
+                <>
+                    <ShoppingBag className="mr-2 h-5 w-5" /> Load More Auctions
+                </>
+                )}
+            </Button>
+            </div>
+        )}
+         {isLoadingMore && (
+            <div className="text-center py-4 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin inline mr-2" />
+                Fetching more auctions...
             </div>
         )}
       </main>
@@ -117,4 +134,3 @@ export default function AuctionsPage() {
     </Suspense>
   );
 }
-

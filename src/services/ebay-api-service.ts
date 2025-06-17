@@ -8,7 +8,8 @@ import {
   GLOBAL_CURATED_CACHE_TTL_MS,
   EXCLUSION_KEYWORDS,
   MIN_SELLER_REPUTATION_THRESHOLD,
-  MIN_DEAL_DISCOUNT_THRESHOLD
+  MIN_DEAL_DISCOUNT_THRESHOLD,
+  API_FETCH_LIMIT
 } from '@/lib/constants';
 
 interface EbayToken {
@@ -110,7 +111,7 @@ interface BrowseApiItemSummary {
   itemId: string;
   title: string;
   image?: { imageUrl: string };
-  price?: { value: string; currency: string };
+  price?: { value: string; currency: string }; // Made price optional
   itemAffiliateWebUrl?: string;
   itemWebUrl?: string;
   shortDescription?: string;
@@ -275,11 +276,14 @@ export async function getRandomPopularSearchTerm(): Promise<string> {
 export const fetchItems = async (
   type: 'deal' | 'auction',
   query: string,
-  isGlobalCuratedRequest: boolean = false
+  isGlobalCuratedRequest: boolean = false,
+  offset: number = 0, // New parameter for pagination offset
+  limit: number = API_FETCH_LIMIT // New parameter for pagination limit
 ): Promise<DealScopeItem[]> => {
   const keywordsForApi = query;
   const cacheKeySuffix = keywordsForApi;
-  const cacheKey = `browse:${type}:${cacheKeySuffix}`;
+  // Update cache key to include offset and limit for uniqueness
+  const cacheKey = `browse:${type}:${cacheKeySuffix}:offset-${offset}:limit-${limit}`;
   const cacheTTL = isGlobalCuratedRequest ? GLOBAL_CURATED_CACHE_TTL_MS : STANDARD_CACHE_TTL_MS;
 
   if (fetchItemsCache.has(cacheKey)) {
@@ -292,36 +296,42 @@ export const fetchItems = async (
   }
 
   if (typeof keywordsForApi !== 'string' || keywordsForApi.trim() === '') {
-    return [];
+    // For global curated requests with an empty query string (after initial load),
+    // we might rely on the calling function (useItemPageLogic) to provide specific keywords.
+    // This function itself won't try to paginate an "empty" query indefinitely.
+    if (!isGlobalCuratedRequest) return [];
+    // If it's a global curated request but the query is empty here, it implies the caller should handle keyword generation.
+    // This scenario should be less common if useItemPageLogic feeds specific keywords for "load more" curated.
   }
 
   const authToken = await getEbayAuthToken();
   const browseApiUrl = new URL('https://api.ebay.com/buy/browse/v1/item_summary/search');
-  browseApiUrl.searchParams.append('q', keywordsForApi);
+  if (keywordsForApi.trim() !== '') { // Only append 'q' if keywords are provided
+    browseApiUrl.searchParams.append('q', keywordsForApi);
+  }
 
-  let limit = '50';
-  if (type === 'deal' && !isGlobalCuratedRequest) { limit = '100'; }
 
-
-  browseApiUrl.searchParams.append('limit', limit);
-  browseApiUrl.searchParams.append('offset', '0');
+  browseApiUrl.searchParams.append('limit', limit.toString());
+  browseApiUrl.searchParams.append('offset', offset.toString());
 
   let filterOptions: string[] = ['itemLocationCountry:GB'];
   let sortOption: string | null = null;
 
   if (type === 'auction') {
     filterOptions.push('buyingOptions:{AUCTION}');
-    sortOption = 'endingSoonest';
-  } else {
+    sortOption = 'endingSoonest'; // Auctions are typically sorted by ending soonest
+  } else { // 'deal'
     filterOptions.push('buyingOptions:{FIXED_PRICE}');
     filterOptions.push('priceCurrency:GBP');
-    filterOptions.push('conditionIds:{1000|2000|2500|3000}');
-    if (isGlobalCuratedRequest) {
+    filterOptions.push('conditionIds:{1000|2000|2500|3000}'); // New, Like New, Refurbished, Good
+    if (isGlobalCuratedRequest || keywordsForApi.trim() === '') { // Broader price for general curated
       filterOptions.push('price:[20..]');
-    } else {
+    } else { // Specific search might have lower priced items
       filterOptions.push('price:[1..]');
-      sortOption = null;
     }
+    // For deals, explicit sort might not be needed if AI re-ranks, or could be 'priceAsc' for cheapest first.
+    // Keeping it null for now to let eBay's relevance work, or AI handle final sort.
+    sortOption = null;
   }
 
   if (sortOption) {
@@ -346,7 +356,7 @@ export const fetchItems = async (
     try {
         data = JSON.parse(responseDataText);
     } catch (jsonParseError) {
-        console.error(`[eBay Service] Response not valid JSON. Query: "${keywordsForApi}", Type: "${type}". URL: ${browseApiUrl.toString()}. Response (start): ${responseDataText.substring(0, 500)}`);
+        console.error(`[eBay Service] Response not valid JSON. Query: "${keywordsForApi}", Type: "${type}", Offset: ${offset}. URL: ${browseApiUrl.toString()}. Response (start): ${responseDataText.substring(0, 500)}`);
         throw new Error(`Failed to parse eBay API response. Start of response: ${responseDataText.substring(0, 200)}...`);
     }
 
@@ -355,15 +365,11 @@ export const fetchItems = async (
          fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
          return [];
       }
-      throw new Error(`Failed to fetch from eBay Browse API (${response.status}). Query: "${keywordsForApi}". Response: ${JSON.stringify(data, null, 2).substring(0, 500)}`);
+      throw new Error(`Failed to fetch from eBay Browse API (${response.status}). Query: "${keywordsForApi}", Offset: ${offset}. Response: ${JSON.stringify(data, null, 2).substring(0, 500)}`);
     }
 
-    // const rawItemCount = data.itemSummaries ? data.itemSummaries.length : 0; // Log removed for lightness
 
     if (!data.itemSummaries || data.itemSummaries.length === 0) {
-      if (data.warnings && data.warnings.length > 0) {
-          // console.warn(`[eBay Service] eBay API Warnings for query "${keywordsForApi}":`, JSON.stringify(data.warnings, null, 2)); // Keep warnings if needed
-      }
       fetchItemsCache.set(cacheKey, { data: [], timestamp: Date.now() });
       return [];
     }
@@ -373,17 +379,12 @@ export const fetchItems = async (
       .map(browseItem => transformBrowseItem(browseItem, type, keywordsForApi, isGlobalCuratedRequest))
       .filter((item): item is DealScopeItem => item !== null);
 
-    // if (rawItemCount > 0 && transformedItems.length < rawItemCount) { // Log removed for lightness
-      // console.log(`[eBay Service] Filtered/Skipped items: Query "${keywordsForApi}", Type "${type}". Raw: ${rawItemCount}, Transformed: ${transformedItems.length}`);
-    // }
-
-
     const finalItems = transformedItems.filter(item => item.type === type);
     fetchItemsCache.set(cacheKey, { data: finalItems, timestamp: Date.now() });
     return finalItems;
 
   } catch (error) {
-    console.error(`[eBay Service] Error in fetchItems. Query: "${keywordsForApi}", Type: "${type}". URL: ${browseApiUrl.toString()}:`, error);
+    console.error(`[eBay Service] Error in fetchItems. Query: "${keywordsForApi}", Type: "${type}", Offset: ${offset}. URL: ${browseApiUrl.toString()}:`, error);
     if (error instanceof Error) {
         if (error.message.includes("eBay Browse API request failed") || error.message.includes("eBay OAuth request failed") || error.message.includes("Failed to authenticate with eBay API") || error.message.includes("Failed to fetch from eBay Browse API") || error.message.includes('Critical eBay API Authentication Failure')) {
              throw error;

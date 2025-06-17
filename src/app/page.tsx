@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { ShoppingBag, AlertTriangle, Info, Loader2 } from "lucide-react";
 import { useItemPageLogic } from '@/hooks/useItemPageLogic';
+import { API_FETCH_LIMIT } from '@/lib/constants';
+
 
 const AnalysisModal = dynamic(() =>
   import('@/components/baybot/AnalysisModal').then(mod => mod.AnalysisModal),
@@ -24,9 +26,10 @@ function HomePageContent() {
     inputValue,
     setInputValue,
     displayedItems,
-    allItems,
-    isLoading, // pageIsLoading
-    isRanking, // pageIsRanking
+    isLoading, 
+    isRanking,
+    isLoadingMore,
+    hasMoreBackendItems,
     error,
     isAuthError,
     selectedItemForAnalysis,
@@ -40,7 +43,6 @@ function HomePageContent() {
     noItemsTitle,
     noItemsDescription,
     activeItemsForNoMessageCount,
-    ITEMS_PER_PAGE,
   } = useItemPageLogic('deal');
 
   return (
@@ -50,7 +52,7 @@ function HomePageContent() {
         onSearchInputChange={setInputValue}
         onSearchSubmit={handleSearchSubmit}
         onLogoClick={handleLogoClick}
-        isLoading={isLoading} // Changed from isLoading || isRanking
+        isLoading={isLoading} 
       />
       <main className="flex-grow container mx-auto px-4 py-8">
         {error && (
@@ -61,7 +63,7 @@ function HomePageContent() {
           </Alert>
         )}
 
-        {(isLoading || (isRanking && displayedItems.length === 0 && allItems.length === 0 )) && <ItemGridLoadingSkeleton count={ITEMS_PER_PAGE} /> }
+        {isLoading && displayedItems.length === 0 && <ItemGridLoadingSkeleton count={API_FETCH_LIMIT / 2} />}
 
         {!isLoading && !isRanking && displayedItems.length === 0 && activeItemsForNoMessageCount === 0 && !error && (
           <NoItemsMessage title={noItemsTitle} description={noItemsDescription} />
@@ -74,21 +76,40 @@ function HomePageContent() {
                 <ItemCard key={item.id} item={item} onAnalyze={handleAnalyzeItem} />
               ))}
             </div>
-            {displayedItems.length < activeItemsForNoMessageCount && (
-              <div className="text-center">
-                <Button onClick={handleLoadMore} size="lg" variant="outline">
-                  <ShoppingBag className="mr-2 h-5 w-5" /> Load More Deals
-                </Button>
-              </div>
-            )}
           </>
         )}
-         {(isLoading || isRanking) && displayedItems.length > 0 && (
-            <div className="text-center py-4 text-muted-foreground">
+        {/* Loading indicator for initial load or AI ranking when items are already shown */}
+        { (isLoading || isRanking) && displayedItems.length > 0 && !isLoadingMore && (
+             <div className="text-center py-4 text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin inline mr-2" />
-                Loading more items...
+                {isRanking ? "AI Processing..." : "Loading..."}
             </div>
         )}
+
+        {/* "Load More" button and its specific loading state */}
+        {displayedItems.length > 0 && hasMoreBackendItems && !isLoading && (
+            <div className="text-center">
+            <Button onClick={handleLoadMore} disabled={isLoadingMore} size="lg" variant="outline">
+                {isLoadingMore ? (
+                <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Loading More...
+                </>
+                ) : (
+                <>
+                    <ShoppingBag className="mr-2 h-5 w-5" /> Load More Deals
+                </>
+                )}
+            </Button>
+            </div>
+        )}
+         {isLoadingMore && ( /* This shows a general loading text if isLoadingMore is true, could be redundant if button handles it */
+            <div className="text-center py-4 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin inline mr-2" />
+                Fetching more deals...
+            </div>
+        )}
+
       </main>
       <AppFooter />
       {isAnalysisModalOpen && selectedItemForAnalysis && (
@@ -110,4 +131,3 @@ export default function HomePage() {
     </Suspense>
   );
 }
-

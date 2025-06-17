@@ -146,3 +146,6 @@ export const KEYWORDS_FOR_PROACTIVE_BACKGROUND_CACHE = 2;
 // For caching searched content
 export const SEARCHED_DEALS_CACHE_KEY_PREFIX = 'searchedDealsCache__';
 export const SEARCHED_AUCTIONS_CACHE_KEY_PREFIX = 'searchedAuctionsCache__';
+
+// For backend pagination / infinite scroll
+export const API_FETCH_LIMIT = 24; // Number of items to fetch per API call for pagination
