@@ -110,19 +110,24 @@ User Query: "{{query}}"
 
 {{#if query_is_specific query}}
 CRITICAL INSTRUCTIONS FOR SPECIFIC USER QUERY: "{{query}}"
-Your task is to return ONLY the IDs of deals that are an EXACT or VERY STRONG match to "{{query}}".
-THEN, from these exact/strong matches, you MUST rank them primarily by the HIGHEST GENUINE DISCOUNT PERCENTAGE.
-This is the ranking hierarchy you MUST follow for specific queries:
-1.  **Exact/Very Strong Relevance to "{{query}}":** This is a non-negotiable filter. If it's not a direct match, DISCARD IT.
+You MUST follow this ranking hierarchy strictly:
+1.  **Exact/Very Strong Relevance to "{{query}}":** This is a non-negotiable filter. Only include items that are a direct and clear match to "{{query}}". DISCARD items that are not a direct match.
     *   **Accessory Filtering:** Crucially, if "{{query}}" is for a main product (e.g., 'iPhone 15 Pro', 'Dell XPS 15', 'Sony A7 IV camera'), you MUST DISCARD all listings that are only accessories (e.g., phone cases, screen protectors, laptop bags, camera lenses unless the query *is* for a lens). If the query IS for an accessory (e.g., 'iPhone 15 Pro case'), then accessories are relevant. For broad specific queries like "laptops" or "TVs", ensure the item is indeed a laptop or TV, not a minor part or accessory.
-2.  **Highest Genuine Discount Percentage:** Among the directly relevant items, sort them with the highest discount percentage first. A 50% off relevant item is better than a 10% off relevant item. A 20% discount is very good.
-3.  **Seller Credibility & Trust:** For items with similar relevance and discount, prefer sellers with higher reputation (>95%) and more feedback.
-4.  **Item Condition:** Prefer New or Manufacturer Refurbished over Used, unless the Used item has a significantly better discount AND high seller credibility.
-5.  **Price Competitiveness:** Ensure the final price is reasonable for the item, its condition, and discount.
+2.  **Highest Genuine Discount Percentage (Strict Sorting):** AFTER establishing direct relevance (Step 1), you MUST sort the remaining relevant items STRICTLY in DESCENDING order of their 'discountPercentage'. An item with a higher 'discountPercentage' (e.g., 50%) MUST always appear before an item with a lower 'discountPercentage' (e.g., 10%). Items with 0% or no discount should appear last among relevant items, if included at all.
+3.  **Tie-Breaking (Use ONLY if 'discountPercentage' is identical or very close for relevant items):**
+    *   **Seller Credibility & Trust:** Prefer sellers with higher reputation (>95%) and more feedback.
+    *   **Item Condition:** Prefer New or Manufacturer Refurbished over Used, unless the Used item has a significantly better discount (which should have been handled by Step 2) AND high seller credibility.
+    *   **Price Competitiveness:** Ensure the final price is reasonable.
 (Item Rarity is less important for specific searches focused on deals unless it's an exceptionally rare item *also* at a good discount).
 {{else}}
 INSTRUCTIONS FOR GENERAL CURATION (Query: "{{query}}")
-Focus on overall deal quality, significant discounts, and seller credibility. Be mindful of not including accessories if the general intent suggests a main product category. Rank by a balance of these factors.
+Your task is to return ONLY an array of the deal IDs, sorted from best to worst.
+Focus on overall deal quality. The primary factors for ranking are:
+1.  **Highest Genuine Discount Percentage:** Give strong preference to items with higher 'discountPercentage'. Items with significant discounts (e.g., 20% or more) should be ranked at the top.
+2.  **Seller Credibility & Trust:** Prefer sellers with higher reputation and more feedback.
+3.  **Item Desirability & Relevance:** Consider if the item is generally desirable or a good find.
+Be mindful of not including accessories if the general intent suggests a main product category.
+Sort the items in DESCENDING order of their attractiveness as a deal, with discount percentage being the most heavily weighted factor.
 {{/if}}
 
 Deals to Qualify and Re-rank (up to {{deals.length}}):
@@ -138,20 +143,20 @@ Deals to Qualify and Re-rank (up to {{deals.length}}):
 
 Return ONLY an array of the deal IDs that you qualify, sorted from the best deal to the worst based on the criteria above.
 The array can contain fewer IDs than the input if some deals are not qualified.
-Example response format for 3 qualified deals: ["id3", "id1", "id2"]
+Example response format for 3 qualified deals: ["id_with_highest_discount", "id_with_medium_discount", "id_with_lowest_discount"]
 Example response format if no deals qualified: []`,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     query_is_specific: (query: string) => {
       const qLower = query.toLowerCase();
       const systemQueryPatterns = [
-        "general curated deal", 
+        "general curated deal",
         "background cache",
         "top-up/soft refresh"
       ];
       const simpleGenericTerms = ["deals", "offers", "discounts", "sale"];
 
-      if (!query || qLower.trim().length < 3) return false; 
+      if (!query || qLower.trim().length < 3) return false;
 
       if (systemQueryPatterns.some(pattern => qLower.includes(pattern))) {
         return false;
@@ -159,13 +164,14 @@ Example response format if no deals qualified: []`,
       if (simpleGenericTerms.includes(qLower)) {
         return false;
       }
+      // Check for system queries that might end with " initial" or " more"
       if (qLower.endsWith(" initial") || qLower.endsWith(" more")) {
           const baseQuery = qLower.replace(" initial", "").replace(" more", "");
           if (systemQueryPatterns.some(pattern => baseQuery.includes(pattern))) {
               return false;
           }
       }
-      return true; 
+      return true;
     }
   }
 });
@@ -220,3 +226,4 @@ const rankDealsFlow = ai.defineFlow(
     }
   }
 );
+
