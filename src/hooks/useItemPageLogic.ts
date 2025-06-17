@@ -81,25 +81,23 @@ export function useItemPageLogic(itemType: ItemType) {
     let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
     
     if (isNewQueryLoad) {
-      setCurrentApiOffset(0); // Reset offset for new queries
+      setCurrentApiOffset(0);
       setHasMoreBackendItems(true); 
       setIsLoading(true); 
       setError(null);
       setIsAuthError(false);
       setInitialLoadComplete(false);
-      setAllItems([]); // Clear existing items for a new query
+      setAllItems([]);
     } else { 
       setIsLoadingMore(true); 
     }
     setIsRanking(false); 
 
     const currentCacheKey = isGlobalCuratedRequest ? CURATED_CACHE_KEY : SEARCHED_CACHE_KEY_PREFIX + queryToLoad;
-    // For new queries, offsetForCall is 0 (or its default). For "load more" specific queries, offsetForCall is currentApiOffset from state.
-    const effectiveOffsetForSpecificQuery = isNewQueryLoad ? 0 : offsetForCall;
-
+    
     let fetchedItemsFromServer: DealScopeItem[] = [];
-    let processedBatchForState: DealScopeItem[] = [];
-    let attemptedKeywords = new Set<string>(); 
+    let processedBatchForAI: DealScopeItem[] = [];
+    let attemptedKeywords = new Set<string>();
 
     try {
       if (isNewQueryLoad) {
@@ -114,15 +112,17 @@ export function useItemPageLogic(itemType: ItemType) {
             }
             if (itemsFromCache.length > 0 && isMounted) {
               const uniqueInitialItemsMap = new Map<string, DealScopeItem>();
-              itemsFromCache.forEach(item => {
-                  if (!uniqueInitialItemsMap.has(item.id)) {
-                      uniqueInitialItemsMap.set(item.id, item);
-                  }
-              });
+              itemsFromCache.forEach(item => { if (!uniqueInitialItemsMap.has(item.id)) uniqueInitialItemsMap.set(item.id, item); });
               const uniqueInitialItems = Array.from(uniqueInitialItemsMap.values());
+              
               setAllItems(uniqueInitialItems);
-              setCurrentApiOffset(uniqueInitialItems.length); 
-              setHasMoreBackendItems(uniqueInitialItems.length >= API_FETCH_LIMIT); 
+              if (isGlobalCuratedRequest) {
+                  setCurrentApiOffset(uniqueInitialItems.length);
+                  setHasMoreBackendItems(true); // For cached curated, assume more can be loaded
+              } else {
+                  setCurrentApiOffset(uniqueInitialItems.length >= API_FETCH_LIMIT ? API_FETCH_LIMIT : uniqueInitialItems.length);
+                  setHasMoreBackendItems(uniqueInitialItems.length >= API_FETCH_LIMIT);
+              }
               setIsLoading(false);
               setInitialLoadComplete(true);
               overallToastMessage = { title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : "Searched"} ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: `Displaying previously fetched ${itemType === 'auction' ? 'active ' : ''}${itemType === 'deal' ? 'deals' : 'auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` };
@@ -139,7 +139,7 @@ export function useItemPageLogic(itemType: ItemType) {
 
       if (isGlobalCuratedRequest) {
         if(isMounted) setIsRanking(true);
-        let accumulatedRawEbayItemsMap = new Map<string, DealScopeItem>(); // Use Map for uniqueness
+        let accumulatedRawEbayItemsMap = new Map<string, DealScopeItem>();
         const itemsToAimFor = isNewQueryLoad ? (MIN_DESIRED_CURATED_ITEMS * TARGET_RAW_ITEMS_FACTOR_FOR_AI) : API_FETCH_LIMIT;
         
         attemptedKeywords = new Set<string>();
@@ -159,63 +159,95 @@ export function useItemPageLogic(itemType: ItemType) {
             if (keywordsForThisBatch.length === 0) break;
             keywordsForThisBatch.forEach(kw => attemptedKeywords.add(kw));
 
-            // For curated, each keyword fetch is "fresh" (offset 0 for that keyword)
             const fetchedBatchesPromises = keywordsForThisBatch.map(kw => fetchItems(itemType, kw, true, 0, API_FETCH_LIMIT));
             const fetchedBatchesResults = await Promise.allSettled(fetchedBatchesPromises);
             
             fetchedBatchesResults.forEach(result => {
               if (result.status === 'fulfilled') {
-                (result.value as DealScopeItem[]).forEach(item => {
-                    if (!accumulatedRawEbayItemsMap.has(item.id)) {
-                        accumulatedRawEbayItemsMap.set(item.id, item);
-                    }
-                });
+                (result.value as DealScopeItem[]).forEach(item => { if (!accumulatedRawEbayItemsMap.has(item.id)) accumulatedRawEbayItemsMap.set(item.id, item); });
               }
             });
-            fetchedItemsFromServer = Array.from(accumulatedRawEbayItemsMap.values()); 
-
+            fetchedItemsFromServer = Array.from(accumulatedRawEbayItemsMap.values());
             if (attemptedKeywords.size >= numKeywordsToFetchForThisLoad * keywordsPerBatchForThisLoad) break;
         }
-        
-        const rawItemsForAI = Array.from(accumulatedRawEbayItemsMap.values());
-        if (rawItemsForAI.length > 0) {
-            const aiQualifiedAndRankedItems: DealScopeItem[] = await aiRankOrQualifyItems(rawItemsForAI, `general curated ${itemType} ${isNewQueryLoad ? 'initial' : 'more'}`);
-            processedBatchForState = aiQualifiedAndRankedItems;
-             if (isNewQueryLoad) {
-                overallToastMessage = { title: `Curated ${itemType === 'deal' ? 'Deals' : 'Auctions'}: AI Qualified`, description: `Displaying ${aiQualifiedAndRankedItems.length} AI-qualified ${itemType}.` };
-            } else {
-                overallToastMessage = { title: `More Curated ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: `Added ${aiQualifiedAndRankedItems.length} more AI-qualified ${itemType}.` };
-            }
-        } else {
-             overallToastMessage = { title: `No More Curated ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: `Could not find more ${itemType} matching criteria.` };
-        }
-        if (isMounted) setIsRanking(false);
-
+        processedBatchForAI = Array.from(accumulatedRawEbayItemsMap.values());
       } else { 
-        fetchedItemsFromServer = await fetchItems(itemType, queryToLoad, false, effectiveOffsetForSpecificQuery, API_FETCH_LIMIT);
-        let activeFetchedItems = fetchedItemsFromServer;
-        if (itemType === 'auction') {
-          activeFetchedItems = fetchedItemsFromServer.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
-        }
+        fetchedItemsFromServer = await fetchItems(itemType, queryToLoad, false, offsetForCall, API_FETCH_LIMIT);
+        processedBatchForAI = fetchedItemsFromServer;
+      }
 
-        if (activeFetchedItems.length > 0) {
-          if (isMounted) setIsRanking(true);
-          const aiProcessedItems = await aiRankOrQualifyItems(activeFetchedItems, queryToLoad);
-          if (isMounted) setIsRanking(false);
-          processedBatchForState = aiProcessedItems;
-          if (isNewQueryLoad) {
-            overallToastMessage = { title: `${itemType === 'deal' ? 'Deals' : 'Auctions'} for "${queryToLoad}"`, description: `Found ${aiProcessedItems.length} AI-qualified ${itemType}.` };
-          } else {
-            overallToastMessage = { title: `More ${itemType === 'deal' ? 'Deals' : 'Auctions'} for "${queryToLoad}"`, description: `Loaded ${aiProcessedItems.length} more AI-qualified ${itemType}.` };
-          }
+      let aiProcessedItems: DealScopeItem[] = [];
+      if (processedBatchForAI.length > 0) {
+        if (isMounted) setIsRanking(true);
+        aiProcessedItems = await aiRankOrQualifyItems(processedBatchForAI, isGlobalCuratedRequest ? `general curated ${itemType} ${isNewQueryLoad ? 'initial' : 'more'}` : queryToLoad);
+        if (isMounted) setIsRanking(false);
+         if (isNewQueryLoad) {
+            overallToastMessage = { title: `${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}: AI Qualified`, description: `Displaying ${aiProcessedItems.length} AI-qualified ${itemType}.` };
         } else {
-             if (isNewQueryLoad) {
-                 overallToastMessage = { title: `No ${itemType === 'deal' ? 'Deals' : 'Auctions'} Found`, description: `No ${itemType === 'auction' ? 'active ' : ''}${itemType} found for "${queryToLoad}".` };
-            } else {
-                 overallToastMessage = { title: `No More ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: `No more ${itemType} found for "${queryToLoad}".` };
-            }
+            overallToastMessage = { title: `More ${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}`, description: `Added ${aiProcessedItems.length} more AI-qualified ${itemType}.` };
+        }
+      } else {
+         if (isNewQueryLoad) {
+             overallToastMessage = { title: `No ${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'} Found`, description: `No ${itemType === 'auction' ? 'active ' : ''}${itemType} found for "${queryToLoad}".` };
+        } else {
+             overallToastMessage = { title: `No More ${isGlobalCuratedRequest ? "Curated " : ""}${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: `No more ${itemType} found for "${queryToLoad}".` };
         }
       }
+       // Ensure AI output is unique
+      const uniqueAiItemsMap = new Map<string, DealScopeItem>();
+      aiProcessedItems.forEach(item => { if (!uniqueAiItemsMap.has(item.id)) uniqueAiItemsMap.set(item.id, item); });
+      const finalProcessedBatch = Array.from(uniqueAiItemsMap.values());
+
+
+      if (isNewQueryLoad) {
+          if (isMounted) setAllItems(finalProcessedBatch);
+          if (isGlobalCuratedRequest) {
+              if (isMounted) {
+                // If initial curated load yields any items (raw or processed), assume more can be loaded.
+                setHasMoreBackendItems(finalProcessedBatch.length > 0 || fetchedItemsFromServer.length > 0);
+                setCurrentApiOffset(finalProcessedBatch.length);
+              }
+          } else { // Specific query initial load
+              if (isMounted) {
+                setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
+                setCurrentApiOffset(API_FETCH_LIMIT);
+              }
+          }
+          if (isMounted && !error && finalProcessedBatch.length > 0) {
+              try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: finalProcessedBatch, timestamp: Date.now() })); }
+              catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e); }
+          }
+      } else { // Load More
+          let newItemsAddedCount = 0;
+          if (isMounted) {
+            setAllItems(prevAllItems => {
+                const existingIds = new Set(prevAllItems.map(item => item.id));
+                const trulyNewItems = finalProcessedBatch.filter(newItem => !existingIds.has(newItem.id));
+                newItemsAddedCount = trulyNewItems.length;
+                const updatedList = [...prevAllItems, ...trulyNewItems];
+                if (!error && trulyNewItems.length > 0) {
+                    try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: updatedList, timestamp: Date.now() })); }
+                    catch (e) { console.warn(`[useItemPageLogic loadItems] Error updating sessionStorage for key "${currentCacheKey}" after load more:`, e); }
+                }
+                return updatedList;
+            });
+          }
+          
+          if (isGlobalCuratedRequest) {
+              // For curated "Load More", if this batch added new items, assume we can try again.
+              // If it added 0 new items, then we've likely exhausted useful keywords for now.
+              if (isMounted) {
+                setHasMoreBackendItems(newItemsAddedCount > 0);
+                setCurrentApiOffset(prevOffset => prevOffset + newItemsAddedCount);
+              }
+          } else { // Specific query "Load More"
+              if (isMounted) {
+                setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT);
+                setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
+              }
+          }
+      }
+
     } catch (e: any) {
       if (!isMounted) return;
       let displayMessage = `Failed to load ${itemType}. Please try again.`;
@@ -228,73 +260,22 @@ export function useItemPageLogic(itemType: ItemType) {
           displayMessage = `Error fetching from eBay. Check query or eBay status. Server logs may have details.`;
         } else { displayMessage = e.message; }
       }
-      setError(displayMessage);
+      if (isMounted) setError(displayMessage);
       overallToastMessage = { title: `Error Loading ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: displayMessage || "An unexpected error occurred.", variant: "destructive" };
-      processedBatchForState = [];
-      fetchedItemsFromServer = [];
+    } finally {
+      if (!isMounted) return;
+      if (isNewQueryLoad) {
+          setIsLoading(false);
+          setInitialLoadComplete(true);
+      } else {
+          setIsLoadingMore(false);
+      }
+      setIsRanking(false); // Ensure ranking is false by the end
+      if (isMounted && overallToastMessage) {
+          setTimeout(() => { if(isMounted) toast(overallToastMessage as any); }, 0);
+      }
     }
-
-    if (!isMounted) return;
-
-    const uniqueOutputFromAI = new Map<string, DealScopeItem>();
-    processedBatchForState.forEach(item => {
-        if (!uniqueOutputFromAI.has(item.id)) {
-            uniqueOutputFromAI.set(item.id, item);
-        }
-    });
-    const uniqueProcessedItems = Array.from(uniqueOutputFromAI.values());
-
-    if (isNewQueryLoad) {
-        setAllItems(uniqueProcessedItems);
-        setCurrentApiOffset(isGlobalCuratedRequest ? uniqueProcessedItems.length : API_FETCH_LIMIT); 
-        setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
-        if (!error && uniqueProcessedItems.length > 0) {
-            try {
-                sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: uniqueProcessedItems, timestamp: Date.now() }));
-            } catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e); }
-        }
-    } else { 
-        let newItemsAddedCount = 0;
-        setAllItems(prevAllItems => {
-            const existingIds = new Set(prevAllItems.map(prevItem => prevItem.id));
-            const trulyNewItems = uniqueProcessedItems.filter(newItem => !existingIds.has(newItem.id));
-            newItemsAddedCount = trulyNewItems.length;
-            
-            const updatedList = [...prevAllItems, ...trulyNewItems];
-            if (!error && trulyNewItems.length > 0) {
-                try {
-                    sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: updatedList, timestamp: Date.now() }));
-                } catch (e) { console.warn(`[useItemPageLogic loadItems] Error updating sessionStorage for key "${currentCacheKey}" after load more:`, e); }
-            }
-            return updatedList;
-        });
-        
-        if (!isGlobalCuratedRequest) { 
-            setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT); // Increment by what was requested
-            setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
-        } else { 
-            setCurrentApiOffset(prevOffset => prevOffset + newItemsAddedCount);
-            const numKeywordsToTryForMore = MAX_CURATED_FETCH_ATTEMPTS * KEYWORDS_PER_BATCH_INITIAL_DEALS;
-            const canTryMoreKeywords = attemptedKeywords.size < numKeywordsToTryForMore;
-            setHasMoreBackendItems(newItemsAddedCount > 0 || canTryMoreKeywords);
-        }
-    }
-    
-    if (overallToastMessage) {
-        setTimeout(() => {
-            if(isMounted) toast(overallToastMessage as any);
-        }, 0);
-    }
-    
-    if (isNewQueryLoad) {
-        setIsLoading(false);
-        setInitialLoadComplete(true);
-    } else {
-        setIsLoadingMore(false);
-    }
-    
     return () => { isMounted = false; };
-
   }, [
     itemType, CURATED_CACHE_KEY, SEARCHED_CACHE_KEY_PREFIX, 
     GLOBAL_CURATED_CACHE_TTL_MS, STANDARD_CACHE_TTL_MS,
@@ -308,9 +289,11 @@ export function useItemPageLogic(itemType: ItemType) {
 
   useEffect(() => {
     let isMounted = true;
-    setInputValue(currentQueryFromUrl);
-    setBackgroundCacheAttempted(false); 
-    setProactiveSearchCacheAttempted(false);
+    if (isMounted) {
+        setInputValue(currentQueryFromUrl);
+        setBackgroundCacheAttempted(false); 
+        setProactiveSearchCacheAttempted(false);
+    }
     
     const loadInitialData = async () => {
         if(isMounted) await loadItems(currentQueryFromUrl, true, 0);
@@ -320,7 +303,7 @@ export function useItemPageLogic(itemType: ItemType) {
     return () => {
       isMounted = false;
     };
-  }, [currentQueryFromUrl, itemType, loadItems, setInputValue, setBackgroundCacheAttempted, setProactiveSearchCacheAttempted]); 
+  }, [currentQueryFromUrl, itemType, loadItems]); 
 
 
   useEffect(() => {
@@ -356,11 +339,7 @@ export function useItemPageLogic(itemType: ItemType) {
           const successfulFetches = batchesResults.filter(r => r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<DealScopeItem[]>).value);
           
           const uniqueItemsMap = new Map<string, DealScopeItem>();
-          successfulFetches.flat().forEach(item => {
-            if (!uniqueItemsMap.has(item.id)) {
-                uniqueItemsMap.set(item.id, item);
-            }
-          });
+          successfulFetches.flat().forEach(item => { if (!uniqueItemsMap.has(item.id)) uniqueItemsMap.set(item.id, item); });
           let uniqueItems = Array.from(uniqueItemsMap.values());
 
           if (otherItemType === 'auction') {
@@ -386,7 +365,7 @@ export function useItemPageLogic(itemType: ItemType) {
     };
   }, [
     initialLoadComplete, backgroundCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError,
-    itemType, OTHER_ITEM_TYPE_CURATED_CACHE_KEY, otherItemType, aiOtherTypeBackgroundCacheQuery,
+    otherItemType, OTHER_ITEM_TYPE_CURATED_CACHE_KEY, aiOtherTypeBackgroundCacheQuery,
     rankDealsAI, qualifyAuctionsAI
   ]);
 
@@ -437,7 +416,7 @@ export function useItemPageLogic(itemType: ItemType) {
     };
   }, [
     currentQueryFromUrl, initialLoadComplete, proactiveSearchCacheAttempted, isLoading, isRanking, error, isAuthError,
-    itemType, OTHER_ITEM_TYPE_SEARCHED_CACHE_KEY_PREFIX, otherItemType,
+    otherItemType, OTHER_ITEM_TYPE_SEARCHED_CACHE_KEY_PREFIX,
     rankDealsAI, qualifyAuctionsAI
   ]);
 
@@ -454,7 +433,7 @@ export function useItemPageLogic(itemType: ItemType) {
     } else {
       router.push(pagePath);
     }
-  }, [router, itemType, currentQueryFromUrl, loadItems, pagePath, pathname]);
+  }, [router, loadItems, pagePath, pathname, currentQueryFromUrl]);
 
 
   const handleLoadMore = useCallback(async () => {
@@ -475,40 +454,48 @@ export function useItemPageLogic(itemType: ItemType) {
 
   const handleAuctionEnd = useCallback((endedItemId: string) => {
     if (itemType !== 'auction') return;
-
+    let isMounted = true;
     let endedItemTitleForToast = "An auction";
-    setAllItems(prevItems => {
-        const itemThatEnded = prevItems.find(item => item.id === endedItemId);
-        if (itemThatEnded) {
-            endedItemTitleForToast = itemThatEnded.title;
-        }
-        const updatedItems = prevItems.filter(item => item.id !== endedItemId);
+    
+    if(isMounted) {
+        setAllItems(prevItems => {
+            const itemThatEnded = prevItems.find(item => item.id === endedItemId);
+            if (itemThatEnded) {
+                endedItemTitleForToast = itemThatEnded.title;
+            }
+            const updatedItems = prevItems.filter(item => item.id !== endedItemId);
 
-        const currentCacheKeyForEnd = (!currentQueryFromUrl) ? CURATED_AUCTIONS_CACHE_KEY : SEARCHED_AUCTIONS_CACHE_KEY_PREFIX + currentQueryFromUrl;
-        try {
-            const cachedDataString = sessionStorage.getItem(currentCacheKeyForEnd);
-            if (cachedDataString) {
-                const cachedData = JSON.parse(cachedDataString);
-                if (cachedData && cachedData.items && Array.isArray(cachedData.items)) {
-                    const updatedCachedItems = cachedData.items.filter((i: DealScopeItem) => i.id !== endedItemId && (i.endTime ? new Date(i.endTime).getTime() > Date.now() : false));
-                    if (updatedCachedItems.length > 0 || cachedData.items.length !== updatedCachedItems.length ) {
-                        sessionStorage.setItem(currentCacheKeyForEnd, JSON.stringify({ items: updatedCachedItems, timestamp: Date.now() }));
-                    } else if (updatedCachedItems.length === 0 && cachedData.items.length > 0) {
-                         sessionStorage.removeItem(currentCacheKeyForEnd);
+            const currentCacheKeyForEnd = (!currentQueryFromUrl) ? CURATED_AUCTIONS_CACHE_KEY : SEARCHED_AUCTIONS_CACHE_KEY_PREFIX + currentQueryFromUrl;
+            try {
+                const cachedDataString = sessionStorage.getItem(currentCacheKeyForEnd);
+                if (cachedDataString) {
+                    const cachedData = JSON.parse(cachedDataString);
+                    if (cachedData && cachedData.items && Array.isArray(cachedData.items)) {
+                        const updatedCachedItems = cachedData.items.filter((i: DealScopeItem) => i.id !== endedItemId && (i.endTime ? new Date(i.endTime).getTime() > Date.now() : false));
+                        if (updatedCachedItems.length > 0 || cachedData.items.length !== updatedCachedItems.length ) {
+                            sessionStorage.setItem(currentCacheKeyForEnd, JSON.stringify({ items: updatedCachedItems, timestamp: Date.now() }));
+                        } else if (updatedCachedItems.length === 0 && cachedData.items.length > 0) {
+                             sessionStorage.removeItem(currentCacheKeyForEnd);
+                        }
                     }
                 }
+            } catch (e) {
+                console.warn(`[useItemPageLogic handleAuctionEnd] Error updating sessionStorage for ${endedItemId} in key ${currentCacheKeyForEnd}:`, e);
             }
-        } catch (e) {
-            console.warn(`[useItemPageLogic handleAuctionEnd] Error updating sessionStorage for ${endedItemId} in key ${currentCacheKeyForEnd}:`, e);
-        }
-        return updatedItems;
-    });
+            return updatedItems;
+        });
+    }
 
-    setTimeout(() => toast({
-        title: "Auction Ended",
-        description: `"${endedItemTitleForToast.substring(0,30)}..." has ended and been removed.`
-    }), 0);
-  }, [itemType, currentQueryFromUrl, toast, SEARCHED_AUCTIONS_CACHE_KEY_PREFIX, CURATED_AUCTIONS_CACHE_KEY]);
+    setTimeout(() => {
+        if (isMounted) {
+            toast({
+                title: "Auction Ended",
+                description: `"${endedItemTitleForToast.substring(0,30)}..." has ended and been removed.`
+            });
+        }
+    }, 0);
+    return () => { isMounted = false; };
+  }, [itemType, currentQueryFromUrl, toast, SEARCHED_AUCTIONS_CACHE_KEY_PREFIX, CURATED_AUCTIONS_CACHE_KEY, setAllItems]);
 
 
   useEffect(() => {
@@ -556,6 +543,3 @@ export function useItemPageLogic(itemType: ItemType) {
     activeItemsForNoMessageCount: activeItemsForNoMessage.length,
   };
 }
-
-
-    
