@@ -117,7 +117,7 @@ const rankDealsPrompt = ai.definePrompt({
   output: {
     schema: RankDealsOutputSchema, 
   },
-  prompt: `You are an expert e-commerce curator with a deep understanding of the eBay marketplace. Your primary function is to intelligently sort and filter a provided list of items to create the most valuable and relevant view for the user. You must be precise but not overly strict, always aiming to provide a useful selection.
+  prompt: `You are an expert e-commerce curator with a deep understanding of the eBay marketplace. Your primary function is to intelligently sort and filter a provided list of items to create the most valuable and relevant view for the user. You must be precise, always aiming to provide a useful selection.
 
 You will be given three pieces of information:
 
@@ -137,25 +137,21 @@ Item List (up to {{items.length}} items):
 Based on the View Type, follow the corresponding logic below.
 
 {{#eq viewType "Deals"}}
-Your goal is to find the best-value items with the highest discounts.
+Your goal is to find the best-value items with the highest discounts that are DIRECTLY RELEVANT to the user's query.
 
-Initial Filter (The Great Filter): First, review the entire list and identify items that are highly irrelevant or likely scams.
+Initial Filter (The Great Filter): First, review the entire list and identify items that are highly irrelevant to the "{{query}}" or likely scams.
 
-Keyword Relevance: When the query is for a specific product (e.g., "Apple iPhone"), you must aggressively filter out irrelevant accessories like cases, screen protectors, chargers, or empty boxes. The user wants the core product, not its peripherals. Try and apply this to all items associated with these kinds of scams.
+Keyword Relevance: When the query is for a specific product (e.g., "Apple iPhone" when user searched "Apple iPhone"), you must aggressively filter out irrelevant accessories like cases, screen protectors, chargers, or empty boxes. The user wants the core product, not its peripherals. If the query is for an accessory (e.g., "iPhone case"), then accessories are relevant. Apply this filtering strictly for all items.
 
-Price Sanity Check: If an item's price seems absurdly low for the product (e.g., a new iPhone for £10), it is likely a scam or an accessory. These should be considered extremely low quality.
+Price Sanity Check: If an item's price seems absurdly low for the product type (e.g., a new iPhone for £10), it is likely a scam or an accessory. These should be considered extremely low quality and filtered out.
 
-Primary Sorting: Your primary sorting logic is highest percentage off. Items with a calculated discount must always appear before items without one.
+Strict Primary Sorting by Discount: After completing the 'Initial Filter', 'Keyword Relevance' filtering, and 'Price Sanity Check' steps, you MUST sort the remaining qualified items. Your **ABSOLUTE AND OVERRIDING PRIMARY SORTING KEY** is \`discountPercentage\`, in strictly DESCENDING order. An item with a 50% discount MUST appear before an item with a 49% discount if both are deemed relevant by the preceding filters.
 
-Secondary Sorting & Ranking: For items with similar or identical discounts, apply this secondary logic to refine their order:
+Secondary Sorting (Only for Identical Discounts): ONLY IF two or more relevant items have the EXACT SAME \`discountPercentage\`, should you then use 'Keyword Relevance' (closer match to query is better) and then 'Seller Reputation' (higher is better) as tie-breakers.
 
-Keyword Relevance: An item that is an exact match for the user's query is more valuable than a partial match.
+Handling a Vague Search: If the query is broad (e.g., "phone", "laptop"), be more inclusive in what is considered relevant for the 'Keyword Relevance' step. However, the 'Strict Primary Sorting by Discount' rule still applies to the items deemed relevant. Your priority is still to find discounted items, but you should focus on items from legitimate, reputable sellers, even if the brand wasn't specified.
 
-Seller Reputation: Give a slight preference to items from sellers with higher ratings.
-
-Handling a Vague Search: If the query is broad (e.g., "phone", "laptop"), be more inclusive. Your priority is still to find discounted items, but you should focus on items from legitimate, reputable sellers, even if the brand wasn't specified.
-
-Final Placement: Items that you did not filter out but have no discount percentage should be placed at the very bottom of the sorted list.
+Final Placement for Non-Discounted Items: Items that passed initial filters but have NO \`discountPercentage\` (or 0%) MUST be placed at the very bottom of the sorted list, after all items with a positive discount.
 {{/eq}}
 
 Mandatory Final Instruction:
