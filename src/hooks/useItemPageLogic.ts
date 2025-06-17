@@ -121,13 +121,13 @@ export function useItemPageLogic(itemType: ItemType) {
               setAllItems(uniqueInitialItems);
               
               let limitForInitialCacheLoad = API_FETCH_LIMIT;
-              if (!isGlobalCuratedRequest) { // Specific search (deal or auction)
+              if (itemType === 'deal' || itemType === 'auction') { // Specific search (deal or auction)
                  limitForInitialCacheLoad = API_FETCH_LIMIT * 2;
               }
 
               if (isGlobalCuratedRequest) {
                   setCurrentApiOffset(uniqueInitialItems.length); 
-                  setHasMoreBackendItems(uniqueInitialItems.length > 0 || (fetchedItemsFromServer && fetchedItemsFromServer.length > 0)); 
+                  setHasMoreBackendItems(uniqueInitialItems.length > 0); // If loading from cache, and items exist, assume more might be available via "Load More"
               } else { // Specific search
                   setCurrentApiOffset(uniqueInitialItems.length >= limitForInitialCacheLoad ? limitForInitialCacheLoad : uniqueInitialItems.length);
                   setHasMoreBackendItems(uniqueInitialItems.length >= limitForInitialCacheLoad);
@@ -184,10 +184,8 @@ export function useItemPageLogic(itemType: ItemType) {
         processedBatchForAI = fetchedItemsFromServer;
       } else { 
         // Specific search
-        if (isNewQueryLoad) { // Only for new specific search, not "load more"
-            if (itemType === 'deal') {
-                itemsToFetchThisCall = API_FETCH_LIMIT * 2; 
-            } else if (itemType === 'auction') {
+        if (isNewQueryLoad) { 
+            if (itemType === 'deal' || itemType === 'auction') {
                 itemsToFetchThisCall = API_FETCH_LIMIT * 2; 
             }
         }
@@ -225,7 +223,6 @@ export function useItemPageLogic(itemType: ItemType) {
               }
           } else { // Specific Search (New Load)
               if (isMounted) {
-                // itemsToFetchThisCall was used for fetching (e.g., API_FETCH_LIMIT * 2)
                 setHasMoreBackendItems(fetchedItemsFromServer.length >= itemsToFetchThisCall);
                 setCurrentApiOffset(itemsToFetchThisCall);
               }
@@ -261,8 +258,8 @@ export function useItemPageLogic(itemType: ItemType) {
               }
           } else { // Specific Search Load More (always uses API_FETCH_LIMIT for itemsToFetchThisCall)
               if (isMounted) {
-                setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT); // Offset increases by standard API_FETCH_LIMIT
-                setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT); // Check based on standard API_FETCH_LIMIT
+                setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT); 
+                setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT); 
               }
           }
       }
@@ -410,7 +407,7 @@ export function useItemPageLogic(itemType: ItemType) {
           }
         }
 
-        const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false, 0, API_FETCH_LIMIT); // Fetch standard amount for other type search cache
+        const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false, 0, API_FETCH_LIMIT); 
         if (fetchedOtherTypeItems.length > 0) {
            let activeFetchedItems = fetchedOtherTypeItems;
            if (otherItemType === 'auction') {
