@@ -72,7 +72,6 @@ export async function qualifyAuctions(
 
         const dealscopeAuctionMap = new Map(dealscopeAuctions.map(auction => [auction.id, auction]));
 
-        // Ensure qualifiedAiAuctionsWithRarityOutput are unique by ID before mapping
         const uniqueQualifiedAIAuctionsMap = new Map<string, AIAuction>();
         qualifiedAiAuctionsWithRarityOutput.forEach(aiAuction => {
             if (!uniqueQualifiedAIAuctionsMap.has(aiAuction.id)) {
@@ -87,7 +86,7 @@ export async function qualifyAuctions(
                 if (originalDealScopeAuction) {
                     return {
                         ...originalDealScopeAuction,
-                        rarityScore: aiAuction.rarityScore, // Rarity score from AI applied here
+                        rarityScore: aiAuction.rarityScore, 
                     };
                 }
                 return null;
@@ -103,7 +102,6 @@ export async function qualifyAuctions(
 
     } catch (e) {
         console.error(`[qualifyAuctions entry] Error calling qualifyAuctionsFlow for query "${query}". Returning original DealScope auction list as fallback (no AI rarity scores). Error:`, e);
-        // Fallback: return original items without AI rarity score
         return dealscopeAuctions.map(auc => ({ ...auc, rarityScore: undefined }));
     }
 }
@@ -123,6 +121,12 @@ Return an array of the full auction objects for items you deem qualified, sorted
 If you deem no items are qualified, return an empty array.
 
 User Query: "{{query}}"
+{{#if query_is_specific query}}
+IMPORTANT: The user has provided a specific query: "{{query}}". Prioritize items that are an EXACT or VERY STRONG match to this query above all other factors. If an item is not highly relevant to this specific query, it should be ranked very low or not qualified.
+When the query is for a main product (e.g., 'iPhone 15', 'Dell laptop', 'Sony camera'), explicitly filter out accessories (e.g., cases, screen protectors, chargers, cables, bags, lenses unless the camera query includes 'lens') unless the query ITSELF is for an accessory (e.g., 'iPhone 15 case').
+{{else}}
+The user query might be more general (e.g., a system-generated curation request). Focus on overall auction quality, credibility, and potential value, but still be mindful of not including accessories if the general intent suggests a main product category.
+{{/if}}
 
 Auctions to Qualify, Re-rank, and Score for Rarity (up to {{auctions.length}}):
 {{#each auctions}}
@@ -141,15 +145,19 @@ For each auction you qualify:
     *   **MEDIUM** scores (41-70) for items that are less common, specific models, or good condition vintage.
     *   **HIGHER** scores (71-100) for genuinely hard-to-find items: vintage in excellent condition, limited editions, very specific/uncommon configurations, or exceptionally rare finds.
 
-Consider these factors for your final ranking, qualification, and rarity scoring:
-1.  **Credibility & Trust:**
+Consider these factors for your final ranking, qualification, and rarity scoring, in this order of importance:
+1.  **Relevance to Query:**
+    *   {{#if query_is_specific query}}
+        **CRITICAL FOR THIS TASK:** The item MUST be a strong, direct match for the user's query: "{{query}}". Items that are vaguely related or accessories (unless the query is FOR an accessory) should be disqualified or ranked very low.
+        {{else}}
+        The item must be a strong match for the user's query: "{{query}}". Deprioritize items that are accessories if the main product was likely searched.
+        {{/if}}
+2.  **Credibility & Trust:**
     *   Prioritize sellers with high reputation (e.g., > 95%) and a significant number of feedback/reviews (e.g. > 50-100).
-2.  **Potential Value & Bidding Dynamics:**
+3.  **Potential Value & Bidding Dynamics:**
     *   Consider the current bid price relative to the item's typical market value and rarity.
-3.  **Relevance to Query:**
-    *   The item must be a strong match for the user's query: "{{query}}".
 4.  **Time Sensitivity:**
-    *   Auctions ending very soon are high priority if they represent good value.
+    *   Auctions ending very soon are high priority if they represent good value and are relevant.
 5.  **Condition:**
     *   New or Manufacturer Refurbished items are generally preferred over Used, unless the price for Used is exceptionally good and the seller is highly reputable.
 6.  **Rarity:** Use the Rarity Score criteria defined above.
@@ -176,6 +184,29 @@ Example response format if no auctions qualified: []`,
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     timeLeft_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     bidCount_or_default: (value: number | undefined, defaultValue: number): number => value ?? defaultValue,
+    query_is_specific: (query: string) => {
+      const qLower = query.toLowerCase();
+      // System-generated queries for curated content or background tasks
+      const systemQueryPatterns = [
+        "general curated auction", // Catches "general curated auctions", "general curated auction initial", "general curated auction more"
+        "background cache",
+        "top-up/soft refresh" // Though less common for auctions, include for robustness
+      ];
+      // Simple generic terms a user might hypothetically type
+      const simpleGenericTerms = ["auctions", "bids", "live auctions"];
+
+      if (!query || qLower.trim().length < 3) return false; // Too short to be specific
+
+      // Check if it's a system query
+      if (systemQueryPatterns.some(pattern => qLower.includes(pattern))) {
+        return false;
+      }
+      // Check if it's one of the simple generic terms
+      if (simpleGenericTerms.includes(qLower)) {
+        return false;
+      }
+      return true; // Otherwise, assume it's a specific user query
+    }
   }
 });
 
@@ -201,7 +232,6 @@ const qualifyAuctionsFlow = ai.defineFlow(
       }
 
       if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length > 0) {
-        // AI explicitly returned empty, indicating no items were qualified.
         return [];
       }
       if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length === 0) {
@@ -225,7 +255,6 @@ const qualifyAuctionsFlow = ai.defineFlow(
           console.warn(`[qualifyAuctionsFlow] Some auctions from AI were discarded (invalid ID or rarity). Original AI count: ${qualifiedAuctionsWithRarity.length}, Validated: ${validatedAuctions.length}. Query: "${input.query}".`);
       }
       
-      // Ensure the final validated list is unique by ID, as AI might theoretically return the same item multiple times in its ranking.
       const uniqueValidatedAuctionsMap = new Map<string, AIAuction>();
       validatedAuctions.forEach(auc => {
         if (!uniqueValidatedAuctionsMap.has(auc.id)) {
@@ -237,7 +266,6 @@ const qualifyAuctionsFlow = ai.defineFlow(
 
     } catch (e) {
       console.error(`[qualifyAuctionsFlow] CRITICAL FAILURE for query "${input.query}", returning original list (no rarity). Error:`, e);
-      // Fallback: return original items without AI rarity score and ensure price is a number
       return input.auctions.map(auc => ({...auc, rarityScore: undefined, price: auc.price || 0 }));
     }
   }

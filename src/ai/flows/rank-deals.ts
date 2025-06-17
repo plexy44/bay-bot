@@ -66,7 +66,6 @@ export async function rankDeals(
 
         const dealscopeDealMap = new Map(dealscopeDeals.map(deal => [deal.id, deal]));
         
-        // Ensure rankedAiDeals are unique by ID before mapping back to DealScopeItem
         const uniqueRankedAiDealsMap = new Map<string, AIDeal>();
         rankedAiDeals.forEach(aiDeal => {
             if (!uniqueRankedAiDealsMap.has(aiDeal.id)) {
@@ -110,8 +109,9 @@ If you deem no items are qualified, return an empty array.
 User Query: "{{query}}"
 {{#if query_is_specific query}}
 IMPORTANT: The user has provided a specific query: "{{query}}". Prioritize items that are an EXACT or VERY STRONG match to this query above all other factors. If an item is not highly relevant to this specific query, it should be ranked very low or not qualified, even if it's a good deal otherwise.
+When the query is for a main product (e.g., 'iPhone 15', 'Dell laptop', 'Sony camera'), explicitly filter out accessories (e.g., cases, screen protectors, chargers, cables, bags, lenses unless the camera query includes 'lens') unless the query ITSELF is for an accessory (e.g., 'iPhone 15 case').
 {{else}}
-The user query indicates a general curation request. Focus on overall deal quality, discount, and seller credibility.
+The user query indicates a general curation request. Focus on overall deal quality, discount, and seller credibility. However, still be mindful of not including accessories if the general intent suggests a main product category.
 {{/if}}
 
 Deals to Qualify and Re-rank (up to {{deals.length}}):
@@ -125,7 +125,7 @@ Deals to Qualify and Re-rank (up to {{deals.length}}):
   Condition: {{condition_or_default condition "Not specified"}}
 {{/each}}
 
-Consider these factors for your final ranking and qualification:
+Consider these factors for your final ranking and qualification, in this order of importance:
 1.  **Relevance to Query:**
     *   {{#if query_is_specific query}}
         **CRITICAL FOR THIS TASK:** The item MUST be a strong, direct match for the user's query: "{{query}}". Items that are vaguely related or accessories (unless the query is FOR an accessory) should be disqualified or ranked very low.
@@ -138,6 +138,7 @@ Consider these factors for your final ranking and qualification:
 3.  **Value (Discount & Price):**
     *   Genuine, substantial discounts (e.g. > 10-15%) are highly valued. Verify the original price makes sense if provided.
     *   Ensure the final price is competitive for the item and its condition.
+    *   {{#if query_is_specific query}}If highly relevant, a smaller discount on an exact match is better than a large discount on a less relevant item.{{/if}}
 4.  **Item Rarity/Desirability:** (Subtle factor, less important if query is specific)
     *   A rare or highly sought-after item at a good discount might rank higher than a common item with a similar discount.
 5.  **Condition:**
@@ -150,8 +151,27 @@ Example response format if no deals qualified: []`,
   helpers: {
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     query_is_specific: (query: string) => {
-      const genericTerms = ["general curated deals", "curated deals", "deals", "general deals", "top deals", "best deals", "general curated deals background cache from auctions", "general curated deals top-up/soft refresh"];
-      return query && !genericTerms.some(term => query.toLowerCase().includes(term.toLowerCase()));
+      const qLower = query.toLowerCase();
+      // System-generated queries for curated content or background tasks
+      const systemQueryPatterns = [
+        "general curated deal", // Catches "general curated deals", "general curated deal initial", "general curated deal more"
+        "background cache",
+        "top-up/soft refresh"
+      ];
+      // Simple generic terms a user might hypothetically type but are less specific
+      const simpleGenericTerms = ["deals", "offers", "discounts"];
+
+      if (!query || qLower.trim().length < 3) return false; // Too short to be specific
+
+      // Check if it's a system query
+      if (systemQueryPatterns.some(pattern => qLower.includes(pattern))) {
+        return false;
+      }
+      // Check if it's one of the simple generic terms (less likely from search bar but good to cover)
+      if (simpleGenericTerms.includes(qLower)) {
+        return false;
+      }
+      return true; // Otherwise, assume it's a specific user query
     }
   }
 });
@@ -178,7 +198,6 @@ const rankDealsFlow = ai.defineFlow(
       }
 
       if (rankedIds.length === 0) {
-        // This is a valid AI response, indicating no deals were qualified.
         return [];
       }
 
