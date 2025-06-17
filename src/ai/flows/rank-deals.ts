@@ -101,17 +101,20 @@ const rankDealsPrompt = ai.definePrompt({
   output: {
     schema: RankedDealIdsOutputSchema,
   },
-  prompt: `You are an expert shopping assistant. The following list of deals has already been pre-filtered and sorted by the system.
-Your task is to QUALIFY and RE-RANK these deals based on overall credibility, value, and relevance.
+  prompt: `You are an expert shopping assistant specializing in finding the best deals. The following list of deals has already been pre-filtered and sorted by the system (typically by highest discount first if available, or by relevance).
+Your task is to QUALIFY and RE-RANK these deals based on overall credibility, value, and relevance to the user's query.
 Return ONLY an array of the deal IDs for items you deem qualified, sorted from the best deal to the worst.
 If you deem no items are qualified, return an empty array.
 
 User Query: "{{query}}"
+
 {{#if query_is_specific query}}
-IMPORTANT: The user has provided a specific query: "{{query}}". Prioritize items that are an EXACT or VERY STRONG match to this query above all other factors. If an item is not highly relevant to this specific query, it should be ranked very low or not qualified, even if it's a good deal otherwise.
-When the query is for a main product (e.g., 'iPhone 15', 'Dell laptop', 'Sony camera'), explicitly filter out accessories (e.g., cases, screen protectors, chargers, cables, bags, lenses unless the camera query includes 'lens') unless the query ITSELF is for an accessory (e.g., 'iPhone 15 case').
+IMPORTANT: The user has provided a specific query: "{{query}}".
+Your primary goal is to find items that are an EXACT or VERY STRONG match to this query.
+Then, among those highly relevant items, you must prioritize those with genuine and substantial discounts.
+Accessories (e.g., cases, screen protectors, chargers, cables, bags, lenses) MUST be filtered out if the query is for a main product (e.g., 'iPhone 15', 'Dell laptop', 'Sony camera'), UNLESS the query ITSELF is specifically for an accessory (e.g., 'iPhone 15 case', 'laptop charger'). For very broad specific queries like "laptop" or "tv", you still need to ensure the items are actual laptops or TVs, not just minor accessories for them.
 {{else}}
-The user query indicates a general curation request. Focus on overall deal quality, discount, and seller credibility. However, still be mindful of not including accessories if the general intent suggests a main product category.
+The user query indicates a general curation request (e.g., "general curated deals"). Focus on overall deal quality, significant discounts, and seller credibility. However, still be mindful of not including accessories if the general intent suggests a main product category.
 {{/if}}
 
 Deals to Qualify and Re-rank (up to {{deals.length}}):
@@ -128,18 +131,27 @@ Deals to Qualify and Re-rank (up to {{deals.length}}):
 Consider these factors for your final ranking and qualification, in this order of importance:
 1.  **Relevance to Query:**
     *   {{#if query_is_specific query}}
-        **CRITICAL FOR THIS TASK:** The item MUST be a strong, direct match for the user's query: "{{query}}". Items that are vaguely related or accessories (unless the query is FOR an accessory) should be disqualified or ranked very low.
+        **CRITICAL FOR THIS TASK:** The item MUST be a strong, direct match for the user's query: "{{query}}".
+        Items that are vaguely related should be ranked significantly lower or disqualified.
+        Accessories (e.g., cases, screen protectors, chargers, cables, bags, lenses) MUST be filtered out if the query is for a main product (e.g., 'iPhone 15', 'Dell laptop', 'Sony camera'), unless the query ITSELF is specifically for an accessory (e.g., 'iPhone 15 case', 'laptop charger').
+        For very broad specific queries like "laptop" or "tv", you still need to ensure the items are actual laptops or TVs, not just minor accessories for them.
+        After establishing strong relevance, other factors like discount and seller credibility will determine the final ranking among these relevant items.
         {{else}}
-        The item must be a strong match for the user's query: "{{query}}". Deprioritize items that are accessories if the main product was likely searched.
+        The item must be a strong match for the user's query: "{{query}}". Deprioritize items that are accessories if the main product was likely searched. For general curation, overall deal appeal is key.
         {{/if}}
 2.  **Credibility & Trust:**
     *   Prioritize sellers with high reputation (e.g., > 95%) and a significant number of feedback/reviews (e.g. > 50-100).
     *   Be wary of deals that seem "too good to be true" despite a high discount if other factors (low seller score, poor title, condition) are concerning.
 3.  **Value (Discount & Price):**
-    *   Genuine, substantial discounts (e.g. > 10-15%) are highly valued. Verify the original price makes sense if provided.
+    *   {{#if query_is_specific query}}
+        Among highly relevant items, a genuine and substantial discount significantly boosts an item's ranking. An exact match with a good discount is ideal.
+        However, an exact match with even a modest discount can still be very valuable to the user and should be preferred over a less relevant item with a larger discount.
+        If a specific query yields many relevant items, prioritize those with better discounts and overall value.
+        {{else}}
+        Genuine, substantial discounts (e.g. > 10-15%) are highly valued. Verify the original price makes sense if provided.
+        {{/if}}
     *   Ensure the final price is competitive for the item and its condition.
-    *   {{#if query_is_specific query}}If highly relevant, a smaller discount on an exact match is better than a large discount on a less relevant item.{{/if}}
-4.  **Item Rarity/Desirability:** (Subtle factor, less important if query is specific)
+4.  **Item Rarity/Desirability:** (Subtle factor, less important if query is specific, more so for general curation)
     *   A rare or highly sought-after item at a good discount might rank higher than a common item with a similar discount.
 5.  **Condition:**
     *   New or Manufacturer Refurbished items are generally preferred over Used, unless the price for Used is exceptionally good and the seller is highly reputable.
@@ -152,26 +164,29 @@ Example response format if no deals qualified: []`,
     condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     query_is_specific: (query: string) => {
       const qLower = query.toLowerCase();
-      // System-generated queries for curated content or background tasks
       const systemQueryPatterns = [
-        "general curated deal", // Catches "general curated deals", "general curated deal initial", "general curated deal more"
+        "general curated deal", 
         "background cache",
         "top-up/soft refresh"
       ];
-      // Simple generic terms a user might hypothetically type but are less specific
-      const simpleGenericTerms = ["deals", "offers", "discounts"];
+      const simpleGenericTerms = ["deals", "offers", "discounts", "sale"];
 
-      if (!query || qLower.trim().length < 3) return false; // Too short to be specific
+      if (!query || qLower.trim().length < 3) return false; 
 
-      // Check if it's a system query
       if (systemQueryPatterns.some(pattern => qLower.includes(pattern))) {
         return false;
       }
-      // Check if it's one of the simple generic terms (less likely from search bar but good to cover)
       if (simpleGenericTerms.includes(qLower)) {
         return false;
       }
-      return true; // Otherwise, assume it's a specific user query
+      // Check for "initial" or "more" often appended to system queries
+      if (qLower.endsWith(" initial") || qLower.endsWith(" more")) {
+          const baseQuery = qLower.replace(" initial", "").replace(" more", "");
+          if (systemQueryPatterns.some(pattern => baseQuery.includes(pattern))) {
+              return false;
+          }
+      }
+      return true; 
     }
   }
 });
@@ -227,3 +242,5 @@ const rankDealsFlow = ai.defineFlow(
   }
 );
 
+
+    

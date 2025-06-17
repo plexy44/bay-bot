@@ -119,12 +119,18 @@ export function useItemPageLogic(itemType: ItemType) {
               const uniqueInitialItems = Array.from(uniqueInitialItemsMap.values());
               
               setAllItems(uniqueInitialItems);
+              
+              let limitForInitialCacheLoad = API_FETCH_LIMIT;
+              if (itemType === 'deal' && !isGlobalCuratedRequest) {
+                 limitForInitialCacheLoad = API_FETCH_LIMIT * 2;
+              }
+
               if (isGlobalCuratedRequest) {
-                  setCurrentApiOffset(uniqueInitialItems.length); // For curated, offset is more like "items seen"
+                  setCurrentApiOffset(uniqueInitialItems.length); 
                   setHasMoreBackendItems(uniqueInitialItems.length > 0 || (fetchedItemsFromServer && fetchedItemsFromServer.length > 0)); 
               } else {
-                  setCurrentApiOffset(uniqueInitialItems.length >= API_FETCH_LIMIT ? API_FETCH_LIMIT : uniqueInitialItems.length);
-                  setHasMoreBackendItems(uniqueInitialItems.length >= API_FETCH_LIMIT);
+                  setCurrentApiOffset(uniqueInitialItems.length >= limitForInitialCacheLoad ? limitForInitialCacheLoad : uniqueInitialItems.length);
+                  setHasMoreBackendItems(uniqueInitialItems.length >= limitForInitialCacheLoad);
               }
               setIsLoading(false);
               setInitialLoadComplete(true);
@@ -141,6 +147,7 @@ export function useItemPageLogic(itemType: ItemType) {
       }
 
       const accumulatedRawEbayItemsMap = new Map<string, DealScopeItem>();
+      let itemsToFetchThisCall = API_FETCH_LIMIT;
 
       if (isGlobalCuratedRequest) {
         if(isMounted) setIsRanking(true);
@@ -163,7 +170,7 @@ export function useItemPageLogic(itemType: ItemType) {
             if (keywordsForThisBatch.length === 0) break;
             keywordsForThisBatch.forEach(kw => attemptedKeywords.add(kw));
 
-            const fetchedBatchesPromises = keywordsForThisBatch.map(kw => fetchItems(itemType, kw, true, 0, API_FETCH_LIMIT));
+            const fetchedBatchesPromises = keywordsForThisBatch.map(kw => fetchItems(itemType, kw, true, 0, API_FETCH_LIMIT)); // Curated always uses API_FETCH_LIMIT per keyword
             const fetchedBatchesResults = await Promise.allSettled(fetchedBatchesPromises);
             
             fetchedBatchesResults.forEach(result => {
@@ -176,7 +183,11 @@ export function useItemPageLogic(itemType: ItemType) {
         fetchedItemsFromServer = Array.from(accumulatedRawEbayItemsMap.values());
         processedBatchForAI = fetchedItemsFromServer;
       } else { 
-        fetchedItemsFromServer = await fetchItems(itemType, queryToLoad, false, offsetForCall, API_FETCH_LIMIT);
+        // Specific search
+        if (itemType === 'deal' && isNewQueryLoad) {
+            itemsToFetchThisCall = API_FETCH_LIMIT * 2; // Fetch more for initial specific deal search
+        }
+        fetchedItemsFromServer = await fetchItems(itemType, queryToLoad, false, offsetForCall, itemsToFetchThisCall);
         processedBatchForAI = fetchedItemsFromServer;
       }
 
@@ -208,17 +219,18 @@ export function useItemPageLogic(itemType: ItemType) {
                 setCurrentApiOffset(finalProcessedBatch.length); 
                 setCuratedLoadMoreAttempts(0); 
               }
-          } else { 
+          } else { // Specific Search (New Load)
               if (isMounted) {
-                setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
-                setCurrentApiOffset(API_FETCH_LIMIT);
+                // itemsToFetchThisCall was used for fetching
+                setHasMoreBackendItems(fetchedItemsFromServer.length >= itemsToFetchThisCall);
+                setCurrentApiOffset(itemsToFetchThisCall);
               }
           }
           if (isMounted && !error && finalProcessedBatch.length > 0) {
               try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: finalProcessedBatch, timestamp: Date.now() })); }
               catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e); }
           }
-      } else { 
+      } else { // Load More
           let newItemsAddedCount = 0;
           if (isMounted) {
             setAllItems(prevAllItems => {
@@ -234,7 +246,7 @@ export function useItemPageLogic(itemType: ItemType) {
             });
           }
           
-          if (isGlobalCuratedRequest) {
+          if (isGlobalCuratedRequest) { // Curated Load More
               if (isMounted) {
                 setCuratedLoadMoreAttempts(prevAttempts => {
                     const nextAttempts = prevAttempts + 1;
@@ -243,7 +255,7 @@ export function useItemPageLogic(itemType: ItemType) {
                 });
                 setCurrentApiOffset(prevOffset => prevOffset + newItemsAddedCount);
               }
-          } else { 
+          } else { // Specific Search Load More (always uses API_FETCH_LIMIT for itemsToFetchThisCall)
               if (isMounted) {
                 setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT);
                 setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
@@ -545,3 +557,5 @@ export function useItemPageLogic(itemType: ItemType) {
     activeItemsForNoMessageCount: activeItemsForNoMessage.length,
   };
 }
+
+    
