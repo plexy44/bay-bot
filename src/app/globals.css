@@ -243,10 +243,10 @@ body {
 
 /* Shimmer effect for hexagon icon */
 @keyframes shimmer-highlight {
-  0% { transform: translateX(-150%) skewX(-30deg); opacity: 0.3; } /* Adjusted opacity */
-  40% { transform: translateX(0%) skewX(-30deg); opacity: 0.7; }   /* Adjusted opacity */
-  60% { transform: translateX(0%) skewX(-30deg); opacity: 0.7; }   /* Adjusted opacity */
-  100% { transform: translateX(150%) skewX(-30deg); opacity: 0.3; } /* Adjusted opacity */
+  0% { transform: translateX(-150%) skewX(-30deg); opacity: 0.3; }
+  40% { transform: translateX(0%) skewX(-30deg); opacity: 0.7; }
+  60% { transform: translateX(0%) skewX(-30deg); opacity: 0.7; }
+  100% { transform: translateX(150%) skewX(-30deg); opacity: 0.3; }
 }
 
 .shimmer-effect {
@@ -259,7 +259,7 @@ body {
   position: absolute;
   top: 0;
   left: 0;
-  width: 75%; /* Width of the shimmer ray */
+  width: 50%; /* Width of the shimmer ray - reduced for more bands */
   height: 100%;
   /* Rainbow gradient */
   background: linear-gradient(
@@ -280,6 +280,9 @@ body {
 
 .shimmer-effect:hover::before {
   opacity: 1; /* Make pseudo-element container visible to let animation play */
-  animation: shimmer-highlight 1.5s ease-in-out infinite;
+  animation: shimmer-highlight 1s ease-in-out infinite; /* Animation duration reduced for faster scroll */
 }
 /* End shimmer effect */
+
+
+    
