@@ -65,7 +65,17 @@ export async function rankDeals(
         const rankedAiDeals: AIDeal[] = await rankDealsFlow(flowInput);
 
         const dealscopeDealMap = new Map(dealscopeDeals.map(deal => [deal.id, deal]));
-        const reorderedDealScopeDeals: DealScopeItem[] = rankedAiDeals
+        
+        // Ensure rankedAiDeals are unique by ID before mapping back to DealScopeItem
+        const uniqueRankedAiDealsMap = new Map<string, AIDeal>();
+        rankedAiDeals.forEach(aiDeal => {
+            if (!uniqueRankedAiDealsMap.has(aiDeal.id)) {
+                uniqueRankedAiDealsMap.set(aiDeal.id, aiDeal);
+            }
+        });
+        const uniqueRankedAiDeals = Array.from(uniqueRankedAiDealsMap.values());
+
+        const reorderedDealScopeDeals: DealScopeItem[] = uniqueRankedAiDeals
             .map(aiDeal => dealscopeDealMap.get(aiDeal.id))
             .filter(Boolean) as DealScopeItem[];
 
@@ -138,7 +148,7 @@ The array can contain fewer IDs than the input if some deals are not qualified.
 Example response format for 3 qualified deals: ["id3", "id1", "id2"]
 Example response format if no deals qualified: []`,
   helpers: {
-    condition_or_default: (value: string | undefined, defaultValue: string) => value || defaultValue,
+    condition_or_default: (value: string | undefined, defaultValue: string): string => value || defaultValue,
     query_is_specific: (query: string) => {
       const genericTerms = ["general curated deals", "curated deals", "deals", "general deals", "top deals", "best deals", "general curated deals background cache from auctions", "general curated deals top-up/soft refresh"];
       return query && !genericTerms.some(term => query.toLowerCase().includes(term.toLowerCase()));
@@ -197,3 +207,4 @@ const rankDealsFlow = ai.defineFlow(
     }
   }
 );
+

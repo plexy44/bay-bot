@@ -14,7 +14,6 @@ import { useToast } from "@/hooks/use-toast";
 import {
   MIN_DESIRED_CURATED_ITEMS,
   MAX_CURATED_FETCH_ATTEMPTS,
-  // MIN_AI_QUALIFIED_ITEMS_THRESHOLD, // Not directly used in this hook's logic flow for now
   CURATED_DEALS_CACHE_KEY,
   CURATED_AUCTIONS_CACHE_KEY,
   MAX_TOTAL_KEYWORDS_TO_TRY_INITIAL_DEALS,
@@ -66,7 +65,10 @@ export function useItemPageLogic(itemType: ItemType) {
   const otherItemType = itemType === 'deal' ? 'auction' : 'deal';
   const pagePath = itemType === 'deal' ? '/' : '/auctions';
 
-  const aiRankOrQualifyItems = itemType === 'deal' ? rankDealsAI : qualifyAuctionsAI;
+  const aiRankOrQualifyItems = useCallback(
+    itemType === 'deal' ? rankDealsAI : qualifyAuctionsAI,
+    [itemType]
+  );
   const aiOtherTypeBackgroundCacheQuery = itemType === 'deal'
     ? "general curated auctions background cache from deals"
     : "general curated deals background cache from auctions";
@@ -78,25 +80,24 @@ export function useItemPageLogic(itemType: ItemType) {
     let overallToastMessage: { title: string; description: string; variant?: 'destructive' } | null = null;
     
     if (isNewQueryLoad) {
-      setAllItems([]); // Handled by setAllItems(processedBatchForState) later if successful
       setCurrentApiOffset(0);
-      setHasMoreBackendItems(true); // Optimistic, adjusted after fetch
-      setIsLoading(true); // Main loading state for new query
+      setHasMoreBackendItems(true); 
+      setIsLoading(true); 
       setError(null);
       setIsAuthError(false);
       setInitialLoadComplete(false);
-    } else { // Load More
-      if (isLoading || isLoadingMore || !hasMoreBackendItems) return; //isLoading check for main page load
-      setIsLoadingMore(true); // Specific loading state for "load more" button
+    } else { 
+      if (isLoading || isLoadingMore || !hasMoreBackendItems) return; 
+      setIsLoadingMore(true); 
     }
-    setIsRanking(false); // Reset ranking state for any new fetch operation
+    setIsRanking(false); 
 
     const currentCacheKey = isGlobalCuratedRequest ? CURATED_CACHE_KEY : SEARCHED_CACHE_KEY_PREFIX + queryToLoad;
-    // For specific queries, use currentApiOffset. For new curated queries, it's 0. For "load more" curated, offset is handled per-keyword.
     const effectiveOffsetForSpecificQuery = isNewQueryLoad ? 0 : currentApiOffset;
 
     let fetchedItemsFromServer: DealScopeItem[] = [];
     let processedBatchForState: DealScopeItem[] = [];
+    let attemptedKeywords = new Set<string>(); // For curated load more tracking
 
     try {
       if (isNewQueryLoad) {
@@ -110,13 +111,20 @@ export function useItemPageLogic(itemType: ItemType) {
               itemsFromCache = itemsFromCache.filter(item => item.type === 'auction' && item.endTime ? new Date(item.endTime).getTime() > Date.now() : false);
             }
             if (itemsFromCache.length > 0 && isMounted) {
-              setAllItems(itemsFromCache);
-              setCurrentApiOffset(itemsFromCache.length); 
-              setHasMoreBackendItems(itemsFromCache.length >= API_FETCH_LIMIT); // Can be refined if cache stores 'hasMore'
+              const uniqueInitialItemsMap = new Map<string, DealScopeItem>();
+              itemsFromCache.forEach(item => {
+                  if (!uniqueInitialItemsMap.has(item.id)) {
+                      uniqueInitialItemsMap.set(item.id, item);
+                  }
+              });
+              const uniqueInitialItems = Array.from(uniqueInitialItemsMap.values());
+              setAllItems(uniqueInitialItems);
+              setCurrentApiOffset(uniqueInitialItems.length); 
+              setHasMoreBackendItems(uniqueInitialItems.length >= API_FETCH_LIMIT); 
               setIsLoading(false);
               setInitialLoadComplete(true);
               setTimeout(() => toast({ title: `Loaded Cached ${isGlobalCuratedRequest ? "Curated" : "Searched"} ${itemType === 'deal' ? 'Deals' : 'Auctions'}`, description: `Displaying previously fetched ${itemType === 'auction' ? 'active ' : ''}${itemType === 'deal' ? 'deals' : 'auctions'}${isGlobalCuratedRequest ? "" : ` for "${queryToLoad}"`}.` }),0);
-              return;
+              return () => { isMounted = false; };
             } else {
               sessionStorage.removeItem(currentCacheKey);
             }
@@ -127,14 +135,14 @@ export function useItemPageLogic(itemType: ItemType) {
       }
 
       if (isGlobalCuratedRequest) {
-        setIsRanking(true);
+        if(isMounted) setIsRanking(true);
         let accumulatedRawEbayItems: DealScopeItem[] = [];
-        const attemptedKeywords = new Set<string>();
         const numKeywordsToFetch = isNewQueryLoad ? MAX_TOTAL_KEYWORDS_TO_TRY_INITIAL_DEALS : MAX_CURATED_FETCH_ATTEMPTS;
         const itemsToAimFor = isNewQueryLoad ? (MIN_DESIRED_CURATED_ITEMS * TARGET_RAW_ITEMS_FACTOR_FOR_AI) : API_FETCH_LIMIT;
-        const currentAccumulatedIds = new Set<string>(); // For ensuring uniqueness in accumulatedRawEbayItems
+        const currentAccumulatedIds = new Set<string>(); 
 
         let currentBatchNumber = 0;
+        attemptedKeywords = new Set<string>(); // Initialize for this curated fetch
         while (accumulatedRawEbayItems.length < itemsToAimFor && attemptedKeywords.size < numKeywordsToFetch * KEYWORDS_PER_BATCH_INITIAL_DEALS ) {
             currentBatchNumber++;
             const keywordsForThisBatch: string[] = [];
@@ -153,17 +161,19 @@ export function useItemPageLogic(itemType: ItemType) {
             const fetchedBatchesPromises = keywordsForThisBatch.map(kw => fetchItems(itemType, kw, true, 0, API_FETCH_LIMIT));
             const fetchedBatchesResults = await Promise.allSettled(fetchedBatchesPromises);
             
+            let batchRawItems: DealScopeItem[] = [];
             fetchedBatchesResults.forEach(result => {
               if (result.status === 'fulfilled') {
-                (result.value as DealScopeItem[]).forEach(item => {
-                  if (!currentAccumulatedIds.has(item.id)) {
-                    accumulatedRawEbayItems.push(item);
-                    currentAccumulatedIds.add(item.id);
-                  }
-                });
+                batchRawItems = batchRawItems.concat(result.value as DealScopeItem[]);
               }
             });
-            fetchedItemsFromServer = [...accumulatedRawEbayItems]; // Update for hasMore check for current batch
+            batchRawItems.forEach(item => {
+              if (!currentAccumulatedIds.has(item.id)) {
+                accumulatedRawEbayItems.push(item);
+                currentAccumulatedIds.add(item.id);
+              }
+            });
+            fetchedItemsFromServer = [...accumulatedRawEbayItems]; 
 
             if (attemptedKeywords.size >= numKeywordsToFetch * KEYWORDS_PER_BATCH_INITIAL_DEALS && !isNewQueryLoad) break;
             if (isNewQueryLoad && attemptedKeywords.size >= MAX_TOTAL_KEYWORDS_TO_TRY_INITIAL_DEALS) break;
@@ -182,7 +192,7 @@ export function useItemPageLogic(itemType: ItemType) {
         }
         if (isMounted) setIsRanking(false);
 
-      } else { // Searched request (not global curated)
+      } else { 
         fetchedItemsFromServer = await fetchItems(itemType, queryToLoad, false, effectiveOffsetForSpecificQuery, API_FETCH_LIMIT);
         let activeFetchedItems = fetchedItemsFromServer;
         if (itemType === 'auction') {
@@ -225,35 +235,54 @@ export function useItemPageLogic(itemType: ItemType) {
 
     if (!isMounted) return;
 
+    // Ensure processedBatchForState is unique by ID before any state updates
+    const uniqueOutputFromAI = new Map<string, DealScopeItem>();
+    processedBatchForState.forEach(item => {
+        if (!uniqueOutputFromAI.has(item.id)) {
+            uniqueOutputFromAI.set(item.id, item);
+        }
+    });
+    const uniqueProcessedItems = Array.from(uniqueOutputFromAI.values());
+
     if (isNewQueryLoad) {
-        setAllItems(processedBatchForState);
-        setCurrentApiOffset(processedBatchForState.length); // For specific queries, this is the new base offset. For curated, it's total unique items.
+        setAllItems(uniqueProcessedItems);
+        // For specific queries, this sets the base offset. For curated, it's total unique items from initial multi-keyword fetch.
+        setCurrentApiOffset(isGlobalCuratedRequest ? uniqueProcessedItems.length : API_FETCH_LIMIT); 
         setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
-        if (!error && processedBatchForState.length > 0) {
+        if (!error && uniqueProcessedItems.length > 0) {
             try {
-                sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: processedBatchForState, timestamp: Date.now() }));
+                sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: uniqueProcessedItems, timestamp: Date.now() }));
             } catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e); }
         }
     } else { // Load More
-        let uniqueNewItemsCount = 0;
         setAllItems(prevAllItems => {
-            const existingIds = new Set(prevAllItems.map(item => item.id));
-            const uniqueNewItems = processedBatchForState.filter(item => !existingIds.has(item.id));
-            uniqueNewItemsCount = uniqueNewItems.length;
-            const updatedList = [...prevAllItems, ...uniqueNewItems];
+            const existingIds = new Set(prevAllItems.map(prevItem => prevItem.id));
+            const trulyNewItems = uniqueProcessedItems.filter(newItem => !existingIds.has(newItem.id));
             
-            if (!error && uniqueNewItems.length > 0) {
+            const updatedList = [...prevAllItems, ...trulyNewItems];
+            if (!error && trulyNewItems.length > 0) {
                 try {
                     sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: updatedList, timestamp: Date.now() }));
                 } catch (e) { console.warn(`[useItemPageLogic loadItems] Error updating sessionStorage for key "${currentCacheKey}" after load more:`, e); }
             }
             return updatedList;
         });
-        // Only increment offset by the number of new unique items added
-        // For specific queries, this correctly tracks the next page.
-        // For curated, it reflects the total unique items shown.
-        setCurrentApiOffset(prevOffset => prevOffset + uniqueNewItemsCount); 
-        setHasMoreBackendItems(uniqueNewItemsCount > 0 && fetchedItemsFromServer.length >= API_FETCH_LIMIT);
+        
+        if (!isGlobalCuratedRequest) { // Specific search "Load More"
+            setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT);
+            setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT);
+        } else { // Global curated "Load More"
+            // For curated, hasMore is true if we fetched any items in the last batch or can try more keywords.
+            // The 'attemptedKeywords' set reflects keywords tried in *this specific* "Load More" call.
+            const numKeywordsToTryForMore = MAX_CURATED_FETCH_ATTEMPTS * KEYWORDS_PER_BATCH_INITIAL_DEALS;
+            const canTryMoreKeywords = attemptedKeywords.size < numKeywordsToTryForMore;
+            setHasMoreBackendItems(fetchedItemsFromServer.length > 0 || canTryMoreKeywords);
+            // Offset for curated is managed by number of keywords, not a simple increment.
+            // currentApiOffset might be less relevant for "load more" curated if we always fetch from offset 0 for new keywords.
+            // However, we update based on items added for general consistency if it were to be used.
+             setCurrentApiOffset(prevOffset => prevOffset + uniqueProcessedItems.filter(item => !allItems.find(i => i.id === item.id)).length);
+
+        }
     }
     
     if (isNewQueryLoad) {
@@ -272,31 +301,30 @@ export function useItemPageLogic(itemType: ItemType) {
     return () => { isMounted = false; };
 
   }, [
-    itemType,
-    // isLoading, isLoadingMore, hasMoreBackendItems, // These are states, not deps for useCallback if logic handles them internally
-    currentApiOffset, // Needed for effectiveOffsetForSpecificQuery when !isNewQueryLoad
-    aiRankOrQualifyItems, // Stable function ref based on itemType
-    CURATED_CACHE_KEY, SEARCHED_CACHE_KEY_PREFIX, // Derived from itemType, stable if itemType is stable
-    GLOBAL_CURATED_CACHE_TTL_MS, STANDARD_CACHE_TTL_MS, // Constants
-    // fetchItems, getRandomPopularSearchTerm, // Imported functions, stable
-    // toast, // Stable from useToast
+    itemType, CURATED_CACHE_KEY, SEARCHED_CACHE_KEY_PREFIX, 
+    GLOBAL_CURATED_CACHE_TTL_MS, STANDARD_CACHE_TTL_MS,
+    aiRankOrQualifyItems, 
+    // fetchItems, getRandomPopularSearchTerm, // Assumed stable
+    // toast, // Assumed stable
+    // isLoading, isLoadingMore, hasMoreBackendItems, currentApiOffset, // These are states managed by the hook
     // State setters are stable:
     setIsLoading, setIsRanking, setError, setIsAuthError, 
     setAllItems, setCurrentApiOffset, setHasMoreBackendItems, 
-    setInitialLoadComplete, setIsLoadingMore
+    setInitialLoadComplete, setIsLoadingMore, allItems // allItems included for "Load More" logic to check existing IDs
   ]);
 
 
   useEffect(() => {
     let isMounted = true;
     setInputValue(currentQueryFromUrl);
-    setBackgroundCacheAttempted(false);
+    // Reset these flags when the primary query changes
+    setBackgroundCacheAttempted(false); 
     setProactiveSearchCacheAttempted(false);
     
     const loadWrapper = async () => {
         const cleanupLoadItems = await loadItems(currentQueryFromUrl, true);
         if (typeof cleanupLoadItems === 'function' && !isMounted) {
-            cleanupLoadItems();
+            cleanupLoadItems(); // Call cleanup if loadItems returned one and component unmounted
         }
     };
     loadWrapper();
@@ -304,8 +332,7 @@ export function useItemPageLogic(itemType: ItemType) {
     return () => {
       isMounted = false;
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentQueryFromUrl, itemType, loadItems]); // loadItems is now memoized
+  }, [currentQueryFromUrl, itemType, loadItems]); 
 
 
   useEffect(() => {
@@ -372,7 +399,7 @@ export function useItemPageLogic(itemType: ItemType) {
   }, [
     initialLoadComplete, backgroundCacheAttempted, isLoading, isRanking, error, currentQueryFromUrl, isAuthError,
     itemType, OTHER_ITEM_TYPE_CURATED_CACHE_KEY, otherItemType, aiOtherTypeBackgroundCacheQuery,
-    // rankDealsAI, qualifyAuctionsAI // These are stable if derived correctly from itemType
+    rankDealsAI, qualifyAuctionsAI
   ]);
 
 
@@ -423,7 +450,7 @@ export function useItemPageLogic(itemType: ItemType) {
   }, [
     currentQueryFromUrl, initialLoadComplete, proactiveSearchCacheAttempted, isLoading, isRanking, error, isAuthError,
     itemType, OTHER_ITEM_TYPE_SEARCHED_CACHE_KEY_PREFIX, otherItemType,
-    // rankDealsAI, qualifyAuctionsAI
+    rankDealsAI, qualifyAuctionsAI
   ]);
 
 
@@ -435,15 +462,20 @@ export function useItemPageLogic(itemType: ItemType) {
   const handleLogoClick = useCallback(async () => {
     setInputValue('');
     const basePagePath = itemType === 'deal' ? '/' : '/auctions';
+    // Check if already on the target homepage with no query
     if (currentQueryFromUrl === '' && router.pathname === basePagePath) {
+      // Already on the correct page, trigger a reload of curated items
       await loadItems('', true);
     } else {
+      // Navigate to the homepage, which will trigger loadItems via useEffect
       router.push(basePagePath);
     }
-  }, [router, itemType, currentQueryFromUrl, loadItems]);
+  }, [router, itemType, currentQueryFromUrl, loadItems, pagePath]);
+
 
   const handleLoadMore = useCallback(async () => {
     if (!isLoading && !isLoadingMore && hasMoreBackendItems) {
+      // Pass currentQueryFromUrl to ensure it uses the active query for "Load More"
       await loadItems(currentQueryFromUrl, false);
     }
   }, [isLoading, isLoadingMore, hasMoreBackendItems, currentQueryFromUrl, loadItems]);
@@ -542,3 +574,4 @@ export function useItemPageLogic(itemType: ItemType) {
     activeItemsForNoMessageCount: activeItemsForNoMessage.length,
   };
 }
+

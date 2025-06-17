@@ -68,11 +68,20 @@ export async function qualifyAuctions(
     const flowInput: QualifyAuctionsInput = { auctions: aiAuctionsInput, query };
 
     try {
-        const qualifiedAiAuctionsWithRarity: AIAuction[] = await qualifyAuctionsFlow(flowInput);
+        const qualifiedAiAuctionsWithRarityOutput: AIAuction[] = await qualifyAuctionsFlow(flowInput);
 
         const dealscopeAuctionMap = new Map(dealscopeAuctions.map(auction => [auction.id, auction]));
 
-        const reorderedDealScopeAuctions: DealScopeItem[] = qualifiedAiAuctionsWithRarity
+        // Ensure qualifiedAiAuctionsWithRarityOutput are unique by ID before mapping
+        const uniqueQualifiedAIAuctionsMap = new Map<string, AIAuction>();
+        qualifiedAiAuctionsWithRarityOutput.forEach(aiAuction => {
+            if (!uniqueQualifiedAIAuctionsMap.has(aiAuction.id)) {
+                uniqueQualifiedAIAuctionsMap.set(aiAuction.id, aiAuction);
+            }
+        });
+        const uniqueQualifiedAIAuctions = Array.from(uniqueQualifiedAIAuctionsMap.values());
+
+        const reorderedDealScopeAuctions: DealScopeItem[] = uniqueQualifiedAIAuctions
             .map(aiAuction => {
                 const originalDealScopeAuction = dealscopeAuctionMap.get(aiAuction.id);
                 if (originalDealScopeAuction) {
@@ -85,8 +94,8 @@ export async function qualifyAuctions(
             })
             .filter(Boolean) as DealScopeItem[];
 
-        if (reorderedDealScopeAuctions.length === 0 && dealscopeAuctions.length > 0 && qualifiedAiAuctionsWithRarity.length === 0) {
-             console.warn(`[qualifyAuctions entry] AI flow returned 0 qualified auctions for query "${query}" from ${dealscopeAuctions.length} inputs. The page will show NO AI-qualified auctions as AI explicitly returned empty. Input count: ${aiAuctionsInput.length}, AI output count: ${qualifiedAiAuctionsWithRarity.length}`);
+        if (reorderedDealScopeAuctions.length === 0 && dealscopeAuctions.length > 0 && qualifiedAiAuctionsWithRarityOutput.length === 0) {
+             console.warn(`[qualifyAuctions entry] AI flow returned 0 qualified auctions for query "${query}" from ${dealscopeAuctions.length} inputs. The page will show NO AI-qualified auctions as AI explicitly returned empty. Input count: ${aiAuctionsInput.length}, AI output count: ${qualifiedAiAuctionsWithRarityOutput.length}`);
         }
 
 
@@ -193,8 +202,6 @@ const qualifyAuctionsFlow = ai.defineFlow(
 
       if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length > 0) {
         // AI explicitly returned empty, indicating no items were qualified.
-        // This is a valid response. No console warning needed here for this specific case.
-        // console.log(`[qualifyAuctionsFlow] AI prompt returned an empty list (0 qualified auctions) from ${input.auctions.length} inputs for query "${input.query}".`);
         return [];
       }
       if (qualifiedAuctionsWithRarity.length === 0 && input.auctions.length === 0) {
@@ -217,8 +224,16 @@ const qualifyAuctionsFlow = ai.defineFlow(
       if (validatedAuctions.length !== qualifiedAuctionsWithRarity.length) {
           console.warn(`[qualifyAuctionsFlow] Some auctions from AI were discarded (invalid ID or rarity). Original AI count: ${qualifiedAuctionsWithRarity.length}, Validated: ${validatedAuctions.length}. Query: "${input.query}".`);
       }
+      
+      // Ensure the final validated list is unique by ID, as AI might theoretically return the same item multiple times in its ranking.
+      const uniqueValidatedAuctionsMap = new Map<string, AIAuction>();
+      validatedAuctions.forEach(auc => {
+        if (!uniqueValidatedAuctionsMap.has(auc.id)) {
+            uniqueValidatedAuctionsMap.set(auc.id, auc);
+        }
+      });
 
-      return validatedAuctions;
+      return Array.from(uniqueValidatedAuctionsMap.values());
 
     } catch (e) {
       console.error(`[qualifyAuctionsFlow] CRITICAL FAILURE for query "${input.query}", returning original list (no rarity). Error:`, e);
@@ -227,3 +242,4 @@ const qualifyAuctionsFlow = ai.defineFlow(
     }
   }
 );
+
