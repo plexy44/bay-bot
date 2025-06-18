@@ -85,6 +85,29 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
     ? '[&>div]:bg-green-600'
     : '[&>div]:bg-orange-500';
 
+  const handleAIAnalysisClick = () => {
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', 'ai_analysis_click', {
+        'item_id': item.id,
+        'item_name': item.title
+      });
+    }
+    onAnalyze(item);
+  };
+
+  const handleOutboundEbayClick = () => {
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', 'outbound_click_ebay', {
+        'item_id': item.id,
+        'item_name': item.title,
+        // 'item_category': item.category, // Category not available in DealScopeItem
+        'value': item.price,
+        'currency': 'GBP'
+      });
+    }
+    // Existing logic to open link will be handled by the <a> tag's href
+  };
+
   return (
     <div className="flex flex-col overflow-hidden h-full glass-card transition-all duration-300 ease-out hover:shadow-[0_0_35px_3px_hsla(var(--primary-hsl),0.25)] hover:-translate-y-1.5">
       <CardHeader className="p-0 relative">
@@ -103,10 +126,10 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
           {item.type === 'deal' && item.discountPercentage && item.discountPercentage > 0 ? (
             <Badge
               className="absolute top-3 right-3 rainbow-badge-animated px-2 py-0.5 text-xs flex items-center gap-1 cursor-pointer"
-              onClick={() => onAnalyze(item)}
+              onClick={handleAIAnalysisClick}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAnalyze(item); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleAIAnalysisClick(); }}
               aria-label={`Analyze deal with ${item.discountPercentage}% off`}
             >
               <Info className="h-3 w-3 text-white text-shadow-strong" />
@@ -115,10 +138,10 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
           ) : (
             <Badge
               className="absolute top-3 right-3 rainbow-badge-animated p-1.5 text-xs flex items-center justify-center cursor-pointer"
-              onClick={() => onAnalyze(item)}
+              onClick={handleAIAnalysisClick}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAnalyze(item); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleAIAnalysisClick(); }}
               aria-label="Analyze item with AI"
             >
               <Info className="h-3.5 w-3.5 text-white text-shadow-strong" />
@@ -196,7 +219,7 @@ const ItemCardComponent: React.FC<ItemCardProps> = ({ item, onAnalyze, onAuction
       <CardFooter className="p-4 pt-2">
         {canViewItem ? (
           <Button className="w-full mt-2 interactive-glow" variant="outline" asChild>
-            <a href={item.itemLink} target="_blank" rel="noopener noreferrer">
+            <a href={item.itemLink} target="_blank" rel="noopener noreferrer" onClick={handleOutboundEbayClick}>
               <ExternalLink className="h-4 w-4 mr-2" />
               {buttonText}
             </a>

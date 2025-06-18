@@ -25,7 +25,7 @@ import {
   SEARCHED_DEALS_CACHE_KEY_PREFIX,
   SEARCHED_AUCTIONS_CACHE_KEY_PREFIX,
   curatedHomepageSearchTerms,
-  API_FETCH_LIMIT, // Now 250
+  API_FETCH_LIMIT,
   MAX_CURATED_LOAD_MORE_TRIES,
 } from '@/lib/constants';
 
@@ -127,11 +127,8 @@ export function useItemPageLogic(itemType: ItemType) {
               
               setAllItems(uniqueInitialItems);
               
-              // For cached items, determine hasMore based on cache size relative to API_FETCH_LIMIT
-              // If cache has API_FETCH_LIMIT or more items, assume more could be fetched.
-              // Otherwise, assume no more for this specific cache state.
               setCurrentApiOffset(uniqueInitialItems.length);
-              setHasMoreBackendItems(uniqueInitialItems.length > 0); // Simpler: if cache has items, allow "load more" to try API
+              setHasMoreBackendItems(uniqueInitialItems.length > 0);
 
               setIsLoading(false);
               setInitialLoadComplete(true);
@@ -148,11 +145,10 @@ export function useItemPageLogic(itemType: ItemType) {
       }
 
       const accumulatedRawEbayItemsMap = new Map<string, DealScopeItem>();
-      let itemsToFetchThisCall = API_FETCH_LIMIT; // Default to new large limit (e.g., 250)
+      let itemsToFetchThisCall = API_FETCH_LIMIT;
 
       if (isGlobalCuratedRequest) {
         if(isMounted) setIsRanking(true);
-        // For curated, itemsToAimFor logic remains, but API_FETCH_LIMIT per batch is now larger
         const itemsToAimFor = isNewQueryLoad ? (MIN_DESIRED_CURATED_ITEMS * TARGET_RAW_ITEMS_FACTOR_FOR_AI) : API_FETCH_LIMIT;
         
         attemptedKeywords = new Set<string>();
@@ -172,7 +168,6 @@ export function useItemPageLogic(itemType: ItemType) {
             if (keywordsForThisBatch.length === 0) break;
             keywordsForThisBatch.forEach(kw => attemptedKeywords.add(kw));
 
-            // Each fetchItems call here will use API_FETCH_LIMIT (e.g., 250)
             const fetchedBatchesPromises = keywordsForThisBatch.map(kw => fetchItems(itemType, kw, true, 0, API_FETCH_LIMIT));
             const fetchedBatchesResults = await Promise.allSettled(fetchedBatchesPromises);
             
@@ -186,8 +181,6 @@ export function useItemPageLogic(itemType: ItemType) {
         fetchedItemsFromServer = Array.from(accumulatedRawEbayItemsMap.values());
         processedBatchForAI = fetchedItemsFromServer;
       } else { 
-        // For specific search (new or load more), itemsToFetchThisCall is API_FETCH_LIMIT (e.g., 250)
-        // The offsetForCall handles pagination for "Load More"
         fetchedItemsFromServer = await fetchItems(itemType, queryToLoad, false, offsetForCall, itemsToFetchThisCall);
         processedBatchForAI = fetchedItemsFromServer;
       }
@@ -214,17 +207,29 @@ export function useItemPageLogic(itemType: ItemType) {
 
       if (isNewQueryLoad) {
           if (isGlobalCuratedRequest && existingItemsToPreserveOnCuratedRefresh) {
-              const combinedItems = [...finalProcessedBatch, ...existingItemsToPreserveOnCuratedRefresh];
-              const uniqueCombinedItemsMap = new Map<string, DealScopeItem>();
-              finalProcessedBatch.forEach(item => uniqueCombinedItemsMap.set(item.id, item)); 
+              const combinedItemsMap = new Map<string, DealScopeItem>();
+              finalProcessedBatch.forEach(item => combinedItemsMap.set(item.id, item)); 
               existingItemsToPreserveOnCuratedRefresh.forEach(item => {
-                  if (!uniqueCombinedItemsMap.has(item.id)) {
-                      uniqueCombinedItemsMap.set(item.id, item);
+                  if (!combinedItemsMap.has(item.id)) {
+                      combinedItemsMap.set(item.id, item);
                   }
               });
-              if (isMounted) setAllItems(Array.from(uniqueCombinedItemsMap.values()));
+              const combinedItems = Array.from(combinedItemsMap.values());
+              if (isMounted) setAllItems(combinedItems);
+              
+              if (!error && combinedItems.length > 0) {
+                  try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: finalProcessedBatch, timestamp: Date.now() })); } // Cache only new items
+                  catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving combined to sessionStorage for key "${currentCacheKey}":`, e); }
+              }
+
           } else {
               if (isMounted) setAllItems(finalProcessedBatch);
+               if (!error && finalProcessedBatch.length > 0) {
+                try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: finalProcessedBatch, timestamp: Date.now() })); }
+                catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e); }
+              } else if (finalProcessedBatch.length === 0 && (!isGlobalCuratedRequest || (isGlobalCuratedRequest && !existingItemsToPreserveOnCuratedRefresh))) {
+                 sessionStorage.removeItem(currentCacheKey);
+              }
           }
 
           if (isGlobalCuratedRequest) {
@@ -233,24 +238,13 @@ export function useItemPageLogic(itemType: ItemType) {
                 setCurrentApiOffset(finalProcessedBatch.length); 
                 setCuratedLoadMoreAttempts(0); 
               }
-          } else { // Specific Search (New Load)
+          } else {
               if (isMounted) {
-                // itemsToFetchThisCall is API_FETCH_LIMIT (e.g., 250)
                 setHasMoreBackendItems(fetchedItemsFromServer.length >= itemsToFetchThisCall);
                 setCurrentApiOffset(itemsToFetchThisCall); 
               }
           }
-          if (isMounted && !error) {
-              const itemsToCache = (isGlobalCuratedRequest && existingItemsToPreserveOnCuratedRefresh) ? finalProcessedBatch : finalProcessedBatch;
-              if (itemsToCache.length > 0) {
-                try { sessionStorage.setItem(currentCacheKey, JSON.stringify({ items: itemsToCache, timestamp: Date.now() })); }
-                catch (e) { console.warn(`[useItemPageLogic loadItems] Error saving to sessionStorage for key "${currentCacheKey}":`, e); }
-              } else if (!isGlobalCuratedRequest || (isGlobalCuratedRequest && !existingItemsToPreserveOnCuratedRefresh)) {
-                sessionStorage.removeItem(currentCacheKey);
-              }
-          }
-
-      } else { // Load More
+      } else { 
           let newItemsAddedCount = 0;
           if (isMounted) {
             setAllItems(prevAllItems => {
@@ -275,9 +269,8 @@ export function useItemPageLogic(itemType: ItemType) {
                 });
                 setCurrentApiOffset(prevOffset => prevOffset + newItemsAddedCount);
               }
-          } else { // Load More (Specific Search)
+          } else { 
               if (isMounted) {
-                // API_FETCH_LIMIT (e.g. 250) items were requested in this "Load More" call
                 setCurrentApiOffset(prevOffset => prevOffset + API_FETCH_LIMIT); 
                 setHasMoreBackendItems(fetchedItemsFromServer.length >= API_FETCH_LIMIT); 
               }
@@ -426,7 +419,6 @@ export function useItemPageLogic(itemType: ItemType) {
             return;
           }
         }
-        // For proactive search cache, fetch API_FETCH_LIMIT items (e.g. 250)
         const fetchedOtherTypeItems = await fetchItems(otherItemType, query, false, 0, API_FETCH_LIMIT); 
         if (fetchedOtherTypeItems.length > 0) {
            let activeFetchedItems = fetchedOtherTypeItems;
@@ -459,6 +451,11 @@ export function useItemPageLogic(itemType: ItemType) {
 
 
   const handleSearchSubmit = useCallback((query: string) => {
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', 'search', {
+        'search_term': query
+      });
+    }
     const newPath = query ? `${pagePath}?q=${encodeURIComponent(query)}` : pagePath;
     router.push(newPath);
   }, [router, pagePath]);
@@ -478,8 +475,14 @@ export function useItemPageLogic(itemType: ItemType) {
 
   const handleLoadMore = useCallback(async () => {
     if (isLoading || isLoadingMore || !hasMoreBackendItems) return;
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', 'load_more_items', {
+        'page_offset': currentApiOffset,
+        'current_view': itemType
+      });
+    }
     await loadItems(currentQueryFromUrl, false, currentApiOffset);
-  }, [isLoading, isLoadingMore, hasMoreBackendItems, currentQueryFromUrl, currentApiOffset, loadItems]);
+  }, [isLoading, isLoadingMore, hasMoreBackendItems, currentQueryFromUrl, currentApiOffset, itemType, loadItems]);
 
   const handleAnalyzeItem = (itemToAnalyze: DealScopeItem) => {
     setSelectedItemForAnalysis(itemToAnalyze);

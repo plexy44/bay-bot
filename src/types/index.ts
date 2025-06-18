@@ -28,3 +28,15 @@ export interface AnalysisResult {
   rarityScore: number;
   keywords: string[];
 }
+
+// GA4 gtag function declaration
+declare global {
+  interface Window {
+    gtag?: (
+      command: 'event' | 'config' | 'set',
+      eventNameOrConfigId: string,
+      eventParams?: Record<string, any>
+    ) => void;
+    dataLayer?: any[];
+  }
+}

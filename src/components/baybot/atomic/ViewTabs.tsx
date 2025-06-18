@@ -18,6 +18,13 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ activePath }) => {
   const [isPending, startTransition] = useTransition();
 
   const handleValueChange = (value: string) => {
+    const newViewType = value === "/" ? 'deals' : 'auctions';
+    if (typeof window.gtag === 'function') {
+      window.gtag('event', 'toggle_view', {
+        'view_type': newViewType
+      });
+    }
+
     // If the "Deals" tab is clicked and we are already on the Deals page, scroll to top.
     if (value === "/" && activePath === "/") {
       window.scrollTo({ top: 0, behavior: 'smooth' });
