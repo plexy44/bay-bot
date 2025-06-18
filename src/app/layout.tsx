@@ -86,6 +86,23 @@ export default function RootLayout({
           strategy="lazyOnload"
           async
         />
+        {/* Google tag (gtag.js) */}
+        <Script
+          id="google-tag-manager"
+          strategy="afterInteractive"
+          src="https://www.googletagmanager.com/gtag/js?id=G-1BFR6XGWN4"
+        />
+        <script
+          id="google-tag-config"
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', 'G-1BFR6XGWN4');
+            `,
+          }}
+        />
       </head>
       <body className="font-body antialiased min-h-screen flex flex-col bg-background text-foreground">
         {children}
